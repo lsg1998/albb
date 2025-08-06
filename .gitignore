@@ -1,0 +1,108 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+*.db
+*.sqlite
+*.sqlite3
+alibaba_supplier_data.db
+result/
+license_files/
+*.log
+*.txt
+*.xlsx
+*.csv
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Build files
+*.spec
+build/
+dist/
+*.exe
+*.msi
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Result files
+result/
+license_files/
+*.log
+*.txt
+*.xlsx
+*.csv
+
+# Images and media
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.ico
+*.svg
+*.mp4
+*.avi
+*.mov
+
+# Archives
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+*.bz2
+
+# Configuration files with sensitive data
+config.ini
+secrets.json
+.env 

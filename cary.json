@@ -1,0 +1,924 @@
+{
+    "code": 200,
+    "data": {
+        "tabs": [
+            {
+                "tabId": "0",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    }
+                ],
+                "title": "所有类目"
+            },
+            {
+                "tabId": "502",
+                "filterItems": [
+                    {
+                        "id": "response_time_type_quick",
+                        "keyword": "快速响应"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    }
+                ],
+                "title": "电子元器件、配件及通讯"
+            },
+            {
+                "tabId": "36",
+                "filterItems": [
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    }
+                ],
+                "title": "珠宝眼镜手表及配饰"
+            },
+            {
+                "tabId": "23",
+                "filterItems": [
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    },
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    }
+                ],
+                "title": "包装印刷"
+            },
+            {
+                "tabId": "21",
+                "filterItems": [
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "onsite_material_inspection",
+                        "keyword": "现场材料检验"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    }
+                ],
+                "title": "办公文教用品"
+            },
+            {
+                "tabId": "66",
+                "filterItems": [
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "BusinessProcurement",
+                        "keyword": "沙龙专供"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    }
+                ],
+                "title": "美妆"
+            },
+            {
+                "tabId": "15",
+                "filterItems": [
+                    {
+                        "id": "OneStopProcurement",
+                        "keyword": "一站式组货"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    }
+                ],
+                "title": "家居园艺"
+            },
+            {
+                "tabId": "201951502",
+                "filterItems": [
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "BusinessProcurement",
+                        "keyword": "沙龙专供"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    }
+                ],
+                "title": "个人护理及家庭清洁"
+            },
+            {
+                "tabId": "44",
+                "filterItems": [
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    }
+                ],
+                "title": "消费电子"
+            },
+            {
+                "tabId": "18",
+                "filterItems": [
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "OneStopProcurement",
+                        "keyword": "一站式组货"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    }
+                ],
+                "title": "运动及娱乐"
+            },
+            {
+                "tabId": "26",
+                "filterItems": [
+                    {
+                        "id": "response_time_type_quick",
+                        "keyword": "快速响应"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    }
+                ],
+                "title": "母婴&玩具"
+            },
+            {
+                "tabId": "1",
+                "filterItems": [
+                    {
+                        "id": "onsite_material_inspection",
+                        "keyword": "现场材料检验"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "suppliers_assessment_procedure",
+                        "keyword": "供应商评估程序"
+                    }
+                ],
+                "title": "农业"
+            },
+            {
+                "tabId": "2",
+                "filterItems": [
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "onsite_material_inspection",
+                        "keyword": "现场材料检验"
+                    },
+                    {
+                        "id": "suppliers_assessment_procedure",
+                        "keyword": "供应商评估程序"
+                    }
+                ],
+                "title": "食品及饮料"
+            },
+            {
+                "tabId": "3",
+                "filterItems": [
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    },
+                    {
+                        "id": "ProfessionalTechniqueProvider",
+                        "keyword": "生产工艺"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    }
+                ],
+                "title": "服装及配饰"
+            },
+            {
+                "tabId": "4",
+                "filterItems": [
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    }
+                ],
+                "title": "面料及纺织原材料"
+            },
+            {
+                "tabId": "5",
+                "filterItems": [
+                    {
+                        "id": "suppliers_assessment_procedure",
+                        "keyword": "供应商评估程序"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    }
+                ],
+                "title": "电气设备及用品"
+            },
+            {
+                "tabId": "6",
+                "filterItems": [
+                    {
+                        "id": "ProfessionalTechniqueProvider",
+                        "keyword": "生产工艺"
+                    },
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    }
+                ],
+                "title": "家用电器"
+            },
+            {
+                "tabId": "8",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    }
+                ],
+                "title": "化学品"
+            },
+            {
+                "tabId": "9",
+                "filterItems": [
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "suppliers_assessment_procedure",
+                        "keyword": "供应商评估程序"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    }
+                ],
+                "title": "金属与合金"
+            },
+            {
+                "tabId": "11",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    }
+                ],
+                "title": "环保"
+            },
+            {
+                "tabId": "13",
+                "filterItems": [
+                    {
+                        "id": "ProjectExperience",
+                        "keyword": "工程案例"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    }
+                ],
+                "title": "建材与房地产"
+            },
+            {
+                "tabId": "16",
+                "filterItems": [
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    }
+                ],
+                "title": "医疗器械和用品"
+            },
+            {
+                "tabId": "17",
+                "filterItems": [
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    }
+                ],
+                "title": "礼品与工艺品"
+            },
+            {
+                "tabId": "30",
+                "filterItems": [
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    }
+                ],
+                "title": "安防"
+            },
+            {
+                "tabId": "34",
+                "filterItems": [
+                    {
+                        "id": "OemPopularBrand",
+                        "keyword": "大牌代工"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    }
+                ],
+                "title": "汽车零配件"
+            },
+            {
+                "tabId": "39",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    }
+                ],
+                "title": "灯具照明"
+            },
+            {
+                "tabId": "41",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    }
+                ],
+                "title": "定制加工"
+            },
+            {
+                "tabId": "43",
+                "filterItems": [
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "expatriate_engineer_service",
+                        "keyword": "外派工程师服务"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    }
+                ],
+                "title": "工业机械"
+            },
+            {
+                "tabId": "80",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    }
+                ],
+                "title": "橡胶与塑料制品"
+            },
+            {
+                "tabId": "322",
+                "filterItems": [
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_sample_custom",
+                        "keyword": "来样定制"
+                    }
+                ],
+                "title": "鞋靴及配饰"
+            },
+            {
+                "tabId": "1420",
+                "filterItems": [
+                    {
+                        "id": "response_time_type_quick",
+                        "keyword": "快速响应"
+                    },
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    }
+                ],
+                "title": "五金工具"
+            },
+            {
+                "tabId": "1503",
+                "filterItems": [
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "onsite_material_inspection",
+                        "keyword": "现场材料检验"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    }
+                ],
+                "title": "家具"
+            },
+            {
+                "tabId": "1524",
+                "filterItems": [
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "socially_responsible",
+                        "keyword": "社会责任"
+                    },
+                    {
+                        "id": "FlexibleCustomization",
+                        "keyword": "柔性定制"
+                    }
+                ],
+                "title": "箱包"
+            },
+            {
+                "tabId": "2829",
+                "filterItems": [
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "expatriate_engineer_service",
+                        "keyword": "外派工程师服务"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    }
+                ],
+                "title": "商业设备及机械"
+            },
+            {
+                "tabId": "201275273",
+                "filterItems": [
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "suppliers_assessment_procedure",
+                        "keyword": "供应商评估程序"
+                    },
+                    {
+                        "id": "expatriate_engineer_service",
+                        "keyword": "外派工程师服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    }
+                ],
+                "title": "整车及交通工具"
+            },
+            {
+                "tabId": "201723202",
+                "filterItems": [
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    }
+                ],
+                "title": "传动"
+            },
+            {
+                "tabId": "201725504",
+                "filterItems": [
+                    {
+                        "id": "quality_control_experts",
+                        "keyword": "具备管理证书"
+                    },
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    }
+                ],
+                "title": "物料搬运"
+            },
+            {
+                "tabId": "201726502",
+                "filterItems": [
+                    {
+                        "id": "response_time_type_quick",
+                        "keyword": "快速响应"
+                    },
+                    {
+                        "id": "cooperated_with_fortune_500",
+                        "keyword": "世界 500 强企业合作伙伴"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    }
+                ],
+                "title": "可再生能源"
+            },
+            {
+                "tabId": "201727804",
+                "filterItems": [
+                    {
+                        "id": "product_inspection",
+                        "keyword": "成品验货"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_minor_custom",
+                        "keyword": "轻定制"
+                    }
+                ],
+                "title": "安全用品"
+            },
+            {
+                "tabId": "201734802",
+                "filterItems": [
+                    {
+                        "id": "suppliers_assessment_procedure",
+                        "keyword": "供应商评估程序"
+                    },
+                    {
+                        "id": "customize_srvc_type_full_custom",
+                        "keyword": "深度定制"
+                    },
+                    {
+                        "id": "customize_srvc_type_design_custom",
+                        "keyword": "来图定制"
+                    },
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    }
+                ],
+                "title": "仪器仪表"
+            },
+            {
+                "tabId": "201943703",
+                "filterItems": [
+                    {
+                        "id": "QualityAssurance",
+                        "keyword": "提供质保服务"
+                    },
+                    {
+                        "id": "expatriate_engineer_service",
+                        "keyword": "外派工程师服务"
+                    },
+                    {
+                        "id": "high_rd_capability",
+                        "keyword": "雄厚的研发实力"
+                    },
+                    {
+                        "id": "odm_services_available",
+                        "keyword": "支持 ODM 服务"
+                    }
+                ],
+                "title": "工程及建材机械"
+            },
+            {
+                "tabId": "201946504",
+                "filterItems": [],
+                "title": "宠物用品及食品"
+            }
+        ]
+    },
+    "msg": "SUCCESS",
+    "time": 93
+}
