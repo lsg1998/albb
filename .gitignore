@@ -56,6 +56,17 @@ license_files/
 *.xlsx
 *.csv
 
+# OCR files (包含敏感信息，不提交到Git)
+ocr_license_complete.py
+ocr_license.py
+ocr_universal.py
+ocr_free.py
+demo_ocr.py
+test_ocr.py
+test_ocr_api.py
+test_recognize.py
+演示识别功能.py
+
 # Temporary files
 *.tmp
 *.temp
