@@ -14,13 +14,10 @@ from alibaba_supplier_crawler import AlibabaSupplierCrawler
 class AlibabaCrawlerGUI:
     def __init__(self):
         self.crawler = AlibabaSupplierCrawler()
-        # 使用新的隧道代理配置
-        self.proxy = {
-            'host': 'x748.kdltps.com',
-            'port': 15818,
-            'username': 't15395136610470',
-            'password': 'gipeoq2k'
-        }
+        # 初始化数据库（确保代理表存在）
+        self.crawler.init_database()
+        # 从数据库加载当前活跃代理
+        self.proxy = self.load_active_proxy()
         self.setup_gui()
     
     def setup_gui(self):
@@ -110,40 +107,23 @@ class AlibabaCrawlerGUI:
         start_page_entry.pack(side=tk.LEFT, padx=(5, 0))
         
         ttk.Label(page_frame, text="到").pack(side=tk.LEFT, padx=(5, 0))
-        self.end_page_var = tk.StringVar(value="5")
+        self.end_page_var = tk.StringVar(value="10")
         end_page_entry = ttk.Entry(page_frame, textvariable=self.end_page_var, width=8)
         end_page_entry.pack(side=tk.LEFT, padx=(5, 0))
         
-        # 高级设置区域 - 新增
-        advanced_frame = ttk.LabelFrame(input_frame, text="高级设置", padding="10")
-        advanced_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
-        
-        # 并发线程数设置
-        ttk.Label(advanced_frame, text="并发线程数:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.thread_count_var = tk.StringVar(value="5")
-        self.thread_count_entry = ttk.Entry(advanced_frame, textvariable=self.thread_count_var, width=10)
-        self.thread_count_entry.grid(row=0, column=1, sticky=tk.W, pady=2, padx=(10, 0))
-        
-        # 批次间隔设置
-        ttk.Label(advanced_frame, text="批次间隔(秒):").grid(row=0, column=2, sticky=tk.W, pady=2, padx=(20, 0))
-        self.batch_delay_var = tk.StringVar(value="1.0")
-        self.batch_delay_entry = ttk.Entry(advanced_frame, textvariable=self.batch_delay_var, width=10)
-        self.batch_delay_entry.grid(row=0, column=3, sticky=tk.W, pady=2, padx=(10, 0))
-        
-        # IP检测开关
-        self.enable_ip_check_var = tk.BooleanVar(value=True)
-        self.enable_ip_check_checkbox = ttk.Checkbutton(advanced_frame, text="启用IP检测", variable=self.enable_ip_check_var)
-        self.enable_ip_check_checkbox.grid(row=0, column=4, sticky=tk.W, pady=2, padx=(20, 0))
+        # 基础设置区域
+        basic_frame = ttk.LabelFrame(input_frame, text="基础设置", padding="10")
+        basic_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
         
         # 代理使用开关
         self.use_proxy_var = tk.BooleanVar(value=False)  # 默认关闭代理
-        self.use_proxy_check = ttk.Checkbutton(advanced_frame, text="使用代理", variable=self.use_proxy_var)
-        self.use_proxy_check.grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.use_proxy_check = ttk.Checkbutton(basic_frame, text="使用代理", variable=self.use_proxy_var)
+        self.use_proxy_check.grid(row=0, column=0, sticky=tk.W, pady=2)
         
         # 跳过重复数据开关
         self.skip_duplicates_var = tk.BooleanVar(value=True)
-        self.skip_duplicates_check = ttk.Checkbutton(advanced_frame, text="跳过重复数据", variable=self.skip_duplicates_var)
-        self.skip_duplicates_check.grid(row=1, column=1, sticky=tk.W, pady=2, padx=(20, 0))
+        self.skip_duplicates_check = ttk.Checkbutton(basic_frame, text="跳过重复数据", variable=self.skip_duplicates_var)
+        self.skip_duplicates_check.grid(row=0, column=1, sticky=tk.W, pady=2, padx=(20, 0))
         
         # 按钮区域
         button_frame = ttk.Frame(input_frame)
@@ -157,8 +137,7 @@ class AlibabaCrawlerGUI:
         
         # 配置网格权重
         input_frame.columnconfigure(1, weight=1)
-        advanced_frame.columnconfigure(1, weight=1)
-        advanced_frame.columnconfigure(3, weight=1)
+        basic_frame.columnconfigure(1, weight=1)
         
         # 进度区域
         progress_frame = ttk.LabelFrame(parent, text="进度", padding="15")
@@ -381,7 +360,7 @@ class AlibabaCrawlerGUI:
         
         ttk.Button(proxy_btn_frame, text="保存代理", command=self.save_proxy).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(proxy_btn_frame, text="测试连接", command=self.test_current_proxy).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(proxy_btn_frame, text="切换代理", command=self.switch_proxy).pack(side=tk.LEFT)
+        ttk.Button(proxy_btn_frame, text="代理管理", command=self.switch_proxy).pack(side=tk.LEFT)
         
         # 配置网格权重
         proxy_config_frame.columnconfigure(1, weight=1)
@@ -469,6 +448,123 @@ class AlibabaCrawlerGUI:
         # 初始化时刷新列表
         self.refresh_db_list_page()
     
+    def load_active_proxy(self):
+        """从数据库加载当前活跃的代理配置"""
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT host, port, username, password FROM proxies WHERE is_active = 1 LIMIT 1')
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                return {
+                    'host': result[0],
+                    'port': result[1],
+                    'username': result[2],
+                    'password': result[3]
+                }
+            else:
+                # 如果没有活跃代理，返回默认配置
+                return {
+                    'host': '127.0.0.1',
+                    'port': 7890,
+                    'username': '',
+                    'password': ''
+                }
+        except Exception as e:
+            print(f"加载代理配置失败: {e}")
+            return {
+                'host': '127.0.0.1',
+                'port': 7890,
+                'username': '',
+                'password': ''
+            }
+    
+    def get_all_proxies(self):
+        """获取所有代理配置"""
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, name, host, port, username, password, is_active FROM proxies ORDER BY id')
+            results = cursor.fetchall()
+            conn.close()
+            
+            proxies = []
+            for row in results:
+                proxies.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'host': row[2],
+                    'port': row[3],
+                    'username': row[4],
+                    'password': row[5],
+                    'is_active': row[6]
+                })
+            return proxies
+        except Exception as e:
+            print(f"获取代理列表失败: {e}")
+            return []
+    
+    def save_proxy_to_db(self, name, host, port, username, password, set_active=False):
+        """保存代理配置到数据库"""
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 如果设置为活跃，先将其他代理设为非活跃
+            if set_active:
+                cursor.execute('UPDATE proxies SET is_active = 0')
+            
+            # 插入新代理
+            cursor.execute('''
+                INSERT INTO proxies (name, host, port, username, password, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (name, host, port, username, password, set_active))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"保存代理配置失败: {e}")
+            return False
+    
+    def set_active_proxy(self, proxy_id):
+        """设置指定代理为活跃状态"""
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 将所有代理设为非活跃
+            cursor.execute('UPDATE proxies SET is_active = 0')
+            
+            # 设置指定代理为活跃
+            cursor.execute('UPDATE proxies SET is_active = 1 WHERE id = ?', (proxy_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            # 重新加载当前代理配置
+            self.proxy = self.load_active_proxy()
+            self.load_proxy_config()
+            return True
+        except Exception as e:
+            print(f"切换代理失败: {e}")
+            return False
+    
+    def delete_proxy(self, proxy_id):
+        """删除代理配置"""
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM proxies WHERE id = ?', (proxy_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"删除代理失败: {e}")
+            return False
+    
     def load_proxy_config(self):
         """加载代理配置"""
         self.proxy_host_entry.delete(0, tk.END)
@@ -498,8 +594,8 @@ class AlibabaCrawlerGUI:
         username = self.proxy_username_entry.get().strip()
         password = self.proxy_password_entry.get().strip()
         
-        if not all([host, port, username, password]):
-            messagebox.showerror("错误", "请填写完整的代理信息")
+        if not all([host, port]):
+            messagebox.showerror("错误", "请至少填写主机和端口")
             return
         
         try:
@@ -508,16 +604,55 @@ class AlibabaCrawlerGUI:
             messagebox.showerror("错误", "端口必须是数字")
             return
         
-        # 更新代理配置
-        self.proxy = {
-            'host': host,
-            'port': port,
-            'username': username,
-            'password': password
-        }
+        # 弹出对话框让用户输入代理名称
+        name_dialog = tk.Toplevel(self.root)
+        name_dialog.title("保存代理")
+        name_dialog.geometry("300x150")
+        name_dialog.transient(self.root)
+        name_dialog.grab_set()
         
-        self.update_current_proxy_display()
-        messagebox.showinfo("成功", "代理配置已保存")
+        # 居中显示
+        name_dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 50, self.root.winfo_rooty() + 50))
+        
+        ttk.Label(name_dialog, text="请输入代理名称:").pack(pady=10)
+        name_entry = ttk.Entry(name_dialog, width=30)
+        name_entry.pack(pady=5)
+        name_entry.insert(0, f"{host}:{port}")
+        name_entry.focus()
+        
+        button_frame = ttk.Frame(name_dialog)
+        button_frame.pack(pady=10)
+        
+        def save_and_close():
+            name = name_entry.get().strip()
+            if not name:
+                messagebox.showerror("错误", "请输入代理名称")
+                return
+            
+            # 询问是否设为当前活跃代理
+            set_active = messagebox.askyesno("设置活跃代理", "是否将此代理设为当前活跃代理？")
+            
+            if self.save_proxy_to_db(name, host, port, username, password, set_active):
+                if set_active:
+                    # 更新当前代理配置
+                    self.proxy = {
+                        'host': host,
+                        'port': port,
+                        'username': username,
+                        'password': password
+                    }
+                    self.load_proxy_config()
+                
+                messagebox.showinfo("成功", "代理配置已保存")
+                name_dialog.destroy()
+            else:
+                messagebox.showerror("错误", "保存代理配置失败")
+        
+        ttk.Button(button_frame, text="保存", command=save_and_close).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=name_dialog.destroy).pack(side=tk.LEFT, padx=5)
+        
+        # 绑定回车键
+        name_entry.bind('<Return>', lambda e: save_and_close())
     
     def test_current_proxy(self):
         """测试当前代理连接"""
@@ -548,57 +683,133 @@ class AlibabaCrawlerGUI:
         thread.start()
     
     def switch_proxy(self):
-        """手动切换代理"""
-        # 提供预设代理选项
-        proxy_options = [
-            {
-                'name': '新隧道代理',
-                'host': 'y900.kdltps.com',
-                'port': 15818,
-                'username': 't15395136610470',
-                'password': 'kyhxo4pj'
-            },
-            {
-                'name': 'Global代理(备用)',
-                'host': 'global.lycheeip.com',
-                'port': 10000,
-                'username': '2ZJDGZpj2p6-zone-custom',
-                'password': 'ed7de9a19a5f'
-            },
-            {
-                'name': 'AS代理(备用)',
-                'host': 'as.lycheeip.com',
-                'port': 10000,
-                'username': '2ZJDGZpj2p6-zone-custom',
-                'password': 'ed7de9a19a5f'
-            }
-        ]
-        
-        # 创建选择对话框
+        """代理管理界面"""
+        # 创建代理管理对话框
         dialog = tk.Toplevel(self.root)
-        dialog.title("选择代理")
-        dialog.geometry("300x200")
+        dialog.title("代理管理")
+        dialog.geometry("600x400")
         dialog.transient(self.root)
         dialog.grab_set()
         
-        ttk.Label(dialog, text="选择要切换的代理:", font=("Arial", 12)).pack(pady=20)
+        # 居中显示
+        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 50, self.root.winfo_rooty() + 50))
         
-        for i, proxy_option in enumerate(proxy_options):
-            btn = ttk.Button(
-                dialog, 
-                text=f"{proxy_option['name']} ({proxy_option['host']})",
-                command=lambda p=proxy_option: self.select_proxy(p, dialog)
-            )
-            btn.pack(pady=5, padx=20, fill=tk.X)
+        # 主框架
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Button(dialog, text="取消", command=dialog.destroy).pack(pady=10)
+        # 标题
+        ttk.Label(main_frame, text="代理管理", font=("Arial", 14, "bold")).pack(pady=(0, 10))
+        
+        # 代理列表框架
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建Treeview显示代理列表
+        columns = ('ID', '名称', '主机', '端口', '用户名', '状态')
+        self.proxy_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=10)
+        
+        # 设置列标题和宽度
+        self.proxy_tree.heading('ID', text='ID')
+        self.proxy_tree.heading('名称', text='名称')
+        self.proxy_tree.heading('主机', text='主机')
+        self.proxy_tree.heading('端口', text='端口')
+        self.proxy_tree.heading('用户名', text='用户名')
+        self.proxy_tree.heading('状态', text='状态')
+        
+        self.proxy_tree.column('ID', width=50)
+        self.proxy_tree.column('名称', width=120)
+        self.proxy_tree.column('主机', width=150)
+        self.proxy_tree.column('端口', width=80)
+        self.proxy_tree.column('用户名', width=120)
+        self.proxy_tree.column('状态', width=80)
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.proxy_tree.yview)
+        self.proxy_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.proxy_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 按钮框架
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="刷新列表", command=self.refresh_proxy_list).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="设为活跃", command=self.activate_selected_proxy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="删除代理", command=self.delete_selected_proxy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="关闭", command=dialog.destroy).pack(side=tk.RIGHT)
+        
+        # 保存对话框引用
+        self.proxy_dialog = dialog
+        
+        # 加载代理列表
+        self.refresh_proxy_list()
     
-    def select_proxy(self, selected_proxy, dialog):
-        """选择代理"""
-        self.proxy = selected_proxy
-        self.load_proxy_config()
-        self.log_message(f"切换到代理: {selected_proxy['name']} ({selected_proxy['host']})")
-        dialog.destroy()
+    def refresh_proxy_list(self):
+        """刷新代理列表"""
+        # 清空现有项目
+        for item in self.proxy_tree.get_children():
+            self.proxy_tree.delete(item)
+        
+        # 获取所有代理
+        proxies = self.get_all_proxies()
+        
+        # 添加到树形视图
+        for proxy in proxies:
+            status = "活跃" if proxy['is_active'] else "非活跃"
+            self.proxy_tree.insert('', 'end', values=(
+                proxy['id'],
+                proxy['name'],
+                proxy['host'],
+                proxy['port'],
+                proxy['username'],
+                status
+            ))
+    
+    def activate_selected_proxy(self):
+        """激活选中的代理"""
+        selection = self.proxy_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个代理")
+            return
+        
+        item = self.proxy_tree.item(selection[0])
+        proxy_id = item['values'][0]
+        proxy_name = item['values'][1]
+        
+        if messagebox.askyesno("确认", f"确定要激活代理 '{proxy_name}' 吗？"):
+            if self.set_active_proxy(proxy_id):
+                messagebox.showinfo("成功", f"代理 '{proxy_name}' 已激活")
+                self.refresh_proxy_list()
+                self.update_current_proxy_display()
+            else:
+                messagebox.showerror("错误", "激活代理失败")
+    
+    def delete_selected_proxy(self):
+        """删除选中的代理"""
+        selection = self.proxy_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个代理")
+            return
+        
+        item = self.proxy_tree.item(selection[0])
+        proxy_id = item['values'][0]
+        proxy_name = item['values'][1]
+        is_active = item['values'][5] == "活跃"
+        
+        if is_active:
+            messagebox.showwarning("警告", "不能删除当前活跃的代理")
+            return
+        
+        if messagebox.askyesno("确认删除", f"确定要删除代理 '{proxy_name}' 吗？\n此操作不可撤销。"):
+            if self.delete_proxy(proxy_id):
+                messagebox.showinfo("成功", f"代理 '{proxy_name}' 已删除")
+                self.refresh_proxy_list()
+            else:
+                messagebox.showerror("错误", "删除代理失败")
+    
+
     
     def refresh_db_list(self):
         """刷新数据库列表"""
@@ -783,36 +994,14 @@ class AlibabaCrawlerGUI:
             messagebox.showerror("错误", "页面范围必须是数字")
             return
         
-        # 获取并发设置
-        try:
-            thread_count = int(self.thread_count_var.get())
-            if thread_count <= 0:
-                messagebox.showerror("错误", "并发线程数必须大于0")
-                return
-            elif thread_count > 20:
-                if not messagebox.askyesno("警告", f"设置了较高的并发线程数({thread_count})，可能会导致IP被封禁。是否继续？"):
-                    return
-        except ValueError:
-            messagebox.showerror("错误", "并发线程数必须是整数")
-            return
-        
-        # 获取批次间隔
-        try:
-            batch_delay = float(self.batch_delay_var.get())
-            if batch_delay < 0:
-                messagebox.showerror("错误", "批次间隔不能为负数")
-                return
-        except ValueError:
-            messagebox.showerror("错误", "批次间隔必须是数字")
-            return
+        # 页面爬取不使用并发设置
         
         # 获取当前代理
         proxy = None
         if self.use_proxy_var.get():
             proxy = self.proxy
         
-        # 获取IP检测设置
-        enable_ip_check = self.enable_ip_check_var.get()
+        # 页面爬取使用默认设置
         
         self.start_crawl_btn.config(state=tk.DISABLED)
         self.stop_crawl_btn.config(state=tk.NORMAL)
@@ -837,12 +1026,6 @@ class AlibabaCrawlerGUI:
                         return
                     
                     self.root.after(0, lambda: self.log_crawl_message(f"开始获取供应商，关键词: {keyword}，页面范围: {start_page}-{end_page}", "INFO"))
-                    self.root.after(0, lambda: self.log_crawl_message(f"并发线程数: {thread_count}, 批次间隔: {batch_delay}秒, IP检测: {'启用' if enable_ip_check else '禁用'}", "INFO"))
-                    
-                    # 更新crawler的并发设置
-                    self.crawler.thread_count = thread_count
-                    self.crawler.batch_delay = batch_delay
-                    self.crawler.enable_ip_check = enable_ip_check
                     
                     # 创建进度更新函数
                     def update_progress(current_page, total_pages, detail=""):
@@ -866,8 +1049,12 @@ class AlibabaCrawlerGUI:
                             # 记录请求开始时间
                             start_time = datetime.now()
                             
+                            # 创建日志回调函数
+                            def log_callback(message, level="INFO"):
+                                self.root.after(0, lambda m=message, l=level: self.log_crawl_message(m, l))
+                            
                             # 直接调用爬虫类的完整方法
-                            suppliers = await self.crawler.crawl_suppliers_range(keyword, start_page, end_page, proxy, skip_duplicates=skip_duplicates)
+                            suppliers = await self.crawler.crawl_suppliers_range(keyword, start_page, end_page, proxy, skip_duplicates=skip_duplicates, log_callback=log_callback)
                             
                             # 计算请求耗时
                             duration = (datetime.now() - start_time).total_seconds()
@@ -908,12 +1095,6 @@ class AlibabaCrawlerGUI:
                     save_path = self.save_path_var.get().strip() if hasattr(self, 'save_path_var') else "result"
                     
                     self.root.after(0, lambda: self.log_crawl_message(f"开始获取供应商，分类ID: {category_id}，页面范围: {start_page}-{end_page}", "INFO"))
-                    self.root.after(0, lambda: self.log_crawl_message(f"并发线程数: {thread_count}, 批次间隔: {batch_delay}秒, IP检测: {'启用' if enable_ip_check else '禁用'}", "INFO"))
-                    
-                    # 更新crawler的并发设置
-                    self.crawler.thread_count = thread_count
-                    self.crawler.batch_delay = batch_delay
-                    self.crawler.enable_ip_check = enable_ip_check
                     
                     # 创建进度更新函数
                     def update_progress(current_page, total_pages, detail=""):
@@ -937,8 +1118,12 @@ class AlibabaCrawlerGUI:
                             # 记录请求开始时间
                             start_time = datetime.now()
                             
+                            # 创建日志回调函数
+                            def log_callback(message, level="INFO"):
+                                self.root.after(0, lambda m=message, l=level: self.log_crawl_message(m, l))
+                            
                             # 直接调用爬虫类的完整方法
-                            suppliers = await self.crawler.crawl_suppliers_by_category(category_id, start_page, end_page, proxy, skip_duplicates=skip_duplicates, save_path=save_path)
+                            suppliers = await self.crawler.crawl_suppliers_by_category(category_id, start_page, end_page, proxy, skip_duplicates=skip_duplicates, save_path=save_path, log_callback=log_callback)
                             
                             # 计算请求耗时
                             duration = (datetime.now() - start_time).total_seconds()
@@ -1119,6 +1304,7 @@ class AlibabaCrawlerGUI:
                         processed_count = 0
                         success_count = 0
                         failed_count = 0
+                        successfully_extracted_ids = []  # 记录成功提取的供应商ID
                         
                         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                             # 将供应商分成指定数量一组
@@ -1150,12 +1336,15 @@ class AlibabaCrawlerGUI:
                                     running_tasks.append(asyncio.create_task(task))
                                 
                                 # 等待当前批次的任务完成（不阻塞下一批）
-                                for task in running_tasks:
+                                for idx, task in enumerate(running_tasks):
                                     try:
                                         result = await task
                                         processed_count += 1
                                         if result:
                                             success_count += 1
+                                            # 记录成功提取的供应商ID
+                                            company_id = batch[idx][0]  # batch中的第一个元素是company_id
+                                            successfully_extracted_ids.append(company_id)
                                             self.root.after(0, lambda: self.log_extract_message(f"成功处理供应商 {processed_count}/{len(suppliers)}", "SUCCESS"))
                                         else:
                                             failed_count += 1
@@ -1179,7 +1368,7 @@ class AlibabaCrawlerGUI:
                         
                         done_msg = f"执照图片提取完成，成功: {success_count}，失败: {failed_count}，总计: {processed_count}"
                         self.root.after(0, lambda m=done_msg: self.log_extract_message(m, "INFO"))
-                        return processed_count
+                        return successfully_extracted_ids  # 返回成功提取的供应商ID列表
                         
                     except Exception as e:
                         error_msg = str(e)
@@ -1187,15 +1376,18 @@ class AlibabaCrawlerGUI:
                         return 0
                 
                 # 运行带进度更新的提取
-                processed_count = loop.run_until_complete(extract_with_progress())
+                successfully_extracted_ids = loop.run_until_complete(extract_with_progress())
                 
-                # 提取完成后，保存所有执照信息到本地文件
-                self.save_all_licenses_to_files(save_path)
+                # 提取完成后，只保存本次提取的执照信息到本地文件
+                if successfully_extracted_ids:
+                    self.save_extracted_licenses_to_files(save_path, successfully_extracted_ids)
+                else:
+                    self.root.after(0, lambda: self.log_extract_message("没有成功提取的供应商，跳过文件保存", "INFO"))
                 
                 # 完成后更新状态
                 self.root.after(0, lambda: self.extract_progress.configure(value=100))
                 self.root.after(0, lambda: self.extract_status_label.config(text="提取完成"))
-                done_msg = f"并发提取完成: 成功处理 {processed_count} 个供应商"
+                done_msg = f"并发提取完成: 成功处理 {len(successfully_extracted_ids) if successfully_extracted_ids else 0} 个供应商"
                 self.root.after(0, lambda m=done_msg: self.log_extract_message(m, "SUCCESS"))
                 
             except Exception as e:
@@ -1404,6 +1596,70 @@ class AlibabaCrawlerGUI:
             
         except Exception as e:
             self.log_message(f"保存执照信息到本地文件时出错: {e}")
+    
+    def save_extracted_licenses_to_files(self, save_path, supplier_ids):
+        """只保存指定供应商ID的执照信息到本地文件"""
+        try:
+            # 连接数据库
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            if not supplier_ids:
+                self.log_extract_message("没有指定的供应商ID", "WARNING")
+                return
+            
+            # 构建IN查询的占位符
+            placeholders = ','.join('?' * len(supplier_ids))
+            
+            # 获取指定供应商的执照信息
+            cursor.execute(f'''
+                SELECT DISTINCT s.company_name, s.company_id
+                FROM suppliers s
+                INNER JOIN license_info li ON s.company_id = li.supplier_id
+                WHERE s.company_id IN ({placeholders})
+                ORDER BY s.created_at DESC
+            ''', supplier_ids)
+            suppliers_with_license = cursor.fetchall()
+            
+            if not suppliers_with_license:
+                self.log_extract_message("指定的供应商中没有找到执照信息", "WARNING")
+                conn.close()
+                return
+            
+            self.log_extract_message(f"开始保存 {len(suppliers_with_license)} 个新提取供应商的执照信息到本地文件", "INFO")
+            
+            saved_count = 0
+            for company_name, company_id in suppliers_with_license:
+                try:
+                    # 获取执照图片
+                    cursor.execute('SELECT license_url FROM licenses WHERE supplier_id = ?', (company_id,))
+                    licenses = cursor.fetchall()
+                    
+                    # 获取执照信息
+                    cursor.execute('''
+                        SELECT registration_no, company_name, date_of_issue, date_of_expiry,
+                               registered_capital, country_territory, registered_address,
+                               year_established, legal_form, legal_representative
+                        FROM license_info WHERE supplier_id = ?
+                    ''', (company_id,))
+                    license_info = cursor.fetchone()
+                    
+                    # 保存到文件
+                    if licenses or license_info:
+                        self.save_license_to_file(company_name, licenses, license_info, save_path)
+                        saved_count += 1
+                        self.log_extract_message(f"✓ 已保存 {company_name} 的执照信息到本地文件", "SUCCESS")
+                    else:
+                        self.log_extract_message(f"✗ {company_name} 没有找到执照信息", "WARNING")
+                        
+                except Exception as e:
+                    self.log_extract_message(f"保存 {company_name} 的执照信息时出错: {e}", "ERROR")
+            
+            conn.close()
+            self.log_extract_message(f"本次提取的执照信息保存完成，共保存 {saved_count} 个供应商", "INFO")
+            
+        except Exception as e:
+            self.log_extract_message(f"保存本次提取的执照信息到本地文件时出错: {e}", "ERROR")
 
     def save_license_to_file(self, company_name, licenses, license_info, save_path):
         """保存执照信息到文件"""
@@ -2362,4 +2618,4 @@ class AlibabaCrawlerGUI:
 
 if __name__ == "__main__":
     app = AlibabaCrawlerGUI()
-    app.run() 
+    app.run()

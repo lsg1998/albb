@@ -109,6 +109,28 @@ class AlibabaSupplierCrawler:
             )
         ''')
         
+        # 创建代理配置表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS proxies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT,
+                password TEXT,
+                is_active BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 插入默认代理配置（如果表为空）
+        cursor.execute('SELECT COUNT(*) FROM proxies')
+        if cursor.fetchone()[0] == 0:
+            cursor.execute('''
+                INSERT INTO proxies (name, host, port, username, password, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('默认代理', '127.0.0.1', 7890, 't15395136610470', 'Aa123456', True))
+        
         conn.commit()
         conn.close()
         print("数据库初始化完成")
@@ -145,7 +167,7 @@ class AlibabaSupplierCrawler:
             print(f"加载分类文件失败: {e}")
             return {}
 
-    def build_category_search_url(self, category_id, page_no=1, page_size=12):
+    def build_category_search_url(self, category_id, page_no=1, page_size=20):
         """构建分类搜索URL"""
         base_url = "https://insights.alibaba.com/openservice/gatewayService"
         
@@ -236,7 +258,7 @@ class AlibabaSupplierCrawler:
             print(f"代理解析失败: {e}")
             return None
     
-    async def fetch_with_proxy(self, url, proxy=None, session=None, is_html=False, check_ip=True, max_retries=3):
+    async def fetch_with_proxy(self, url, proxy=None, session=None, is_html=False, check_ip=True, max_retries=3, log_callback=None):
         """使用代理获取数据（带重试机制）"""
         # 检查IP变化（可选）
         if check_ip:
@@ -415,7 +437,7 @@ class AlibabaSupplierCrawler:
                                 else:
                                     return await response.json()
                             else:
-                                print(f"请求失败，状态码: {response.status} (尝试 {attempt + 1}/{max_retries})")
+                                self.log(f"请求失败，状态码: {response.status} (尝试 {attempt + 1}/{max_retries})", "ERROR", log_callback)
                     else:
                         async with session.get(url, headers=headers) as response:
                             if response.status == 200:
@@ -424,7 +446,7 @@ class AlibabaSupplierCrawler:
                                 else:
                                     return await response.json()
                             else:
-                                print(f"请求失败，状态码: {response.status} (尝试 {attempt + 1}/{max_retries})")
+                                self.log(f"请求失败，状态码: {response.status} (尝试 {attempt + 1}/{max_retries})", "ERROR", log_callback)
                 else:
                     # 使用requests同步请求
                     proxies = None
@@ -441,22 +463,22 @@ class AlibabaSupplierCrawler:
                         else:
                             return response.json()
                     else:
-                        print(f"请求失败，状态码: {response.status_code} (尝试 {attempt + 1}/{max_retries})")
+                        self.log(f"请求失败，状态码: {response.status_code} (尝试 {attempt + 1}/{max_retries})", "ERROR", log_callback)
                 
                 # 如果不是最后一次尝试，等待后重试
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2  # 递增等待时间：2秒、4秒、6秒
-                    print(f"等待 {wait_time} 秒后重试...")
+                    self.log(f"等待 {wait_time} 秒后重试...", "INFO", log_callback)
                     await asyncio.sleep(wait_time)
                     
             except Exception as e:
-                print(f"请求出错 (尝试 {attempt + 1}/{max_retries}): {e}")
+                self.log(f"请求出错 (尝试 {attempt + 1}/{max_retries}): {e}", "ERROR", log_callback)
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2
-                    print(f"等待 {wait_time} 秒后重试...")
+                    self.log(f"等待 {wait_time} 秒后重试...", "INFO", log_callback)
                     await asyncio.sleep(wait_time)
         
-        print(f"请求失败，已达到最大重试次数 ({max_retries})")
+        self.log(f"请求失败，已达到最大重试次数 ({max_retries})", "ERROR", log_callback)
         return None
     
     async def check_ip_change(self, proxy=None):
@@ -538,22 +560,34 @@ class AlibabaSupplierCrawler:
         """爬取供应商数据（兼容旧版本）"""
         return await self.crawl_suppliers_range(keyword, 1, pages, proxy, extract_licenses)
     
-    async def crawl_suppliers_range(self, keyword, start_page=1, end_page=1, proxy=None, extract_licenses=False, skip_duplicates=True):
+    async def crawl_suppliers_range(self, keyword, start_page=1, end_page=1, proxy=None, extract_licenses=False, skip_duplicates=True, log_callback=None):
         """爬取指定页面范围的供应商数据"""
         try:
             all_suppliers = []
+            total_saved = 0
+            total_skipped = 0
             
             # 创建异步会话
             connector = aiohttp.TCPConnector(limit=10)
             timeout = aiohttp.ClientTimeout(total=30)
             
+            # 日志输出函数
+            def log(message, level="INFO"):
+                if log_callback:
+                    log_callback(message, level)
+                else:
+                    print(message)
+            
+            log(f"🚀 开始爬取关键词: '{keyword}'，页面范围: {start_page}-{end_page}")
+            log("=" * 60)
+            
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 for page in range(start_page, end_page + 1):
-                    print(f"正在爬取第 {page} 页供应商...")
+                    log(f"📄 正在爬取第 {page} 页 ({page}/{end_page})...")
                     
                     # 构建搜索URL
                     search_url = self.build_search_url(keyword, page)
-                    print(f"请求URL: {search_url}")
+                    log(f"🔗 请求URL: {search_url}")
                     
                     try:
                         # 使用代理请求
@@ -561,48 +595,60 @@ class AlibabaSupplierCrawler:
                         
                         if data.get('success') and 'model' in data and 'offers' in data['model']:
                             suppliers = self.extract_suppliers_from_api(data['model']['offers'])
-                            all_suppliers.extend(suppliers)
-                            print(f"第 {page} 页获取到 {len(suppliers)} 个供应商")
+                            log(f"📦 第 {page} 页获取到 {len(suppliers)} 个供应商")
                             
-                            # 打印API响应的分页信息
+                            # 实时保存每个供应商
+                            if suppliers:
+                                log(f"💾 开始保存第 {page} 页的供应商数据...")
+                                page_saved = 0
+                                page_skipped = 0
+                                
+                                for i, supplier in enumerate(suppliers, 1):
+                                    result = await self.save_single_supplier(supplier, skip_duplicates)
+                                    if result:
+                                        page_saved += 1
+                                        total_saved += 1
+                                    else:
+                                        page_skipped += 1
+                                        total_skipped += 1
+                                    
+                                    # 显示进度
+                                    log(f"  📊 进度: {i}/{len(suppliers)} - 新增: {page_saved}, 重复: {page_skipped}")
+                                
+                                log(f"✅ 第 {page} 页保存完成: 新增 {page_saved} 个，跳过 {page_skipped} 个重复", "SUCCESS")
+                                all_suppliers.extend(suppliers)
+                            
+                            # 打印API响应的分页信息（简化版）
                             if 'model' in data and 'pagination' in data['model']:
                                 pagination = data['model']['pagination']
-                                print(f"分页信息: {pagination}")
-                            elif 'model' in data and 'pageInfo' in data['model']:
-                                page_info = data['model']['pageInfo']
-                                print(f"页面信息: {page_info}")
-                            elif 'model' in data and 'paginationData' in data['model']:
-                                pagination_data = data['model']['paginationData']
-                                print(f"分页数据: {pagination_data}")
+                                if 'totalCount' in pagination:
+                                    log(f"📈 总供应商数: {pagination.get('totalCount', 'N/A')}")
                             
-                            # 打印完整的API响应结构（仅在第1页时）
-                            if page == 1:
-                                print(f"API响应结构: {list(data.keys())}")
-                                if 'model' in data:
-                                    print(f"Model结构: {list(data['model'].keys())}")
-                            
-                            # 打印前3个供应商的ID，用于调试
-                            if suppliers:
-                                print(f"第{page}页前3个供应商ID: {[s['company_id'] for s in suppliers[:3]]}")
                         else:
-                            print(f"第 {page} 页API返回错误: {data}")
-                            # 打印完整的API响应以便调试
-                            print(f"完整响应: {data}")
+                            log(f"❌ 第 {page} 页API返回错误", "ERROR")
+                            if data:
+                                log(f"   错误详情: {data.get('message', '未知错误')}", "ERROR")
                     
                     except Exception as e:
-                        print(f"爬取第 {page} 页时出错: {e}")
+                        log(f"❌ 爬取第 {page} 页时出错: {e}", "ERROR")
                         continue
                     
                     # 页面间延迟
                     if page < end_page:
-                        await asyncio.sleep(random.uniform(2, 5))
+                        delay = random.uniform(2, 5)
+                        log(f"⏱️  等待 {delay:.1f} 秒后继续下一页...")
+                        await asyncio.sleep(delay)
             
-            # 保存数据
-            await self.save_suppliers(all_suppliers, skip_duplicates)
+            # Excel文件更新已移除
+            
+            # 总结
+            log(f"🎉 爬取完成！", "SUCCESS")
+            log(f"📊 总计: 新增 {total_saved} 个供应商，跳过 {total_skipped} 个重复")
+            log("=" * 60)
             
             # 如果需要提取执照图片
             if extract_licenses and all_suppliers:
-                print("开始提取供应商执照图片...")
+                log("🔍 开始提取供应商执照图片...")
                 # 创建新的session用于获取HTML页面
                 connector = aiohttp.TCPConnector(limit=10)
                 timeout = aiohttp.ClientTimeout(total=30)
@@ -612,68 +658,108 @@ class AlibabaSupplierCrawler:
             return all_suppliers
             
         except Exception as e:
-            print(f"爬取过程中出错: {e}")
+            log(f"❌ 爬取过程中出错: {e}", "ERROR")
             return []
     
-    async def crawl_suppliers_by_category(self, category_id, start_page=1, end_page=1, proxy=None, extract_licenses=False, skip_duplicates=True, save_path=None):
+    async def crawl_suppliers_by_category(self, category_id, start_page=1, end_page=1, proxy=None, extract_licenses=False, skip_duplicates=True, save_path=None, log_callback=None):
         """按分类爬取供应商"""
+        # 日志输出函数
+        def log(message, level="INFO"):
+            if log_callback:
+                log_callback(message, level)
+            else:
+                print(message)
+        
         if category_id not in self.categories:
-            print(f"未知的分类ID: {category_id}")
+            log(f"❌ 未知的分类ID: {category_id}", "ERROR")
             return []
         
         category_name = self.categories[category_id]
-        print(f"开始爬取分类: {category_name} (ID: {category_id})")
+        all_suppliers = []
+        total_saved = 0
+        total_skipped = 0
+        
+        log(f"🚀 开始爬取分类: {category_name} (ID: {category_id})，页面范围: {start_page}-{end_page}")
+        log("=" * 60)
         
         # 为每个供应商添加分类信息
-        all_suppliers = []
         connector = aiohttp.TCPConnector(limit=10)
         timeout = aiohttp.ClientTimeout(total=30)
         
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             for page in range(start_page, end_page + 1):
-                print(f"正在获取第 {page} 页...")
+                log(f"📄 正在爬取第 {page} 页 ({page}/{end_page})...")
                 
                 # 构建搜索URL
                 search_url = self.build_category_search_url(category_id, page)
-                print(f"请求URL: {search_url}")
+                log(f"🔗 请求URL: {search_url}")
                 
-                # 请求数据
-                data = await self.fetch_with_proxy(search_url, proxy, session)
+                try:
+                    # 请求数据
+                    data = await self.fetch_with_proxy(search_url, proxy, session)
+                    
+                    if data and data.get('code') == 200 and 'data' in data and 'list' in data['data']:
+                        suppliers = self.extract_suppliers_from_category_api(data['data']['list'])
+                        log(f"📦 第 {page} 页获取到 {len(suppliers)} 个供应商")
+                        
+                        # 为每个供应商添加分类信息
+                        for supplier in suppliers:
+                            supplier['category_id'] = category_id
+                            supplier['category_name'] = category_name
+                            supplier['save_path'] = save_path
+                        
+                        # 实时保存每个供应商
+                        if suppliers:
+                            log(f"💾 开始保存第 {page} 页的供应商数据...")
+                            page_saved = 0
+                            page_skipped = 0
+                            
+                            for i, supplier in enumerate(suppliers, 1):
+                                result = await self.save_single_supplier(supplier, skip_duplicates)
+                                if result:
+                                    page_saved += 1
+                                    total_saved += 1
+                                else:
+                                    page_skipped += 1
+                                    total_skipped += 1
+                                
+                                # 显示进度
+                                log(f"  📊 进度: {i}/{len(suppliers)} - 新增: {page_saved}, 重复: {page_skipped}")
+                            
+                            log(f"✅ 第 {page} 页保存完成: 新增 {page_saved} 个，跳过 {page_skipped} 个重复", "SUCCESS")
+                            all_suppliers.extend(suppliers)
+                        
+                        # 打印分页信息（简化版）
+                        if 'page' in data['data']:
+                            page_info = data['data']['page']
+                            if 'totalCount' in page_info:
+                                log(f"📈 总供应商数: {page_info.get('totalCount', 'N/A')}")
+                        
+                    else:
+                        log(f"❌ 第 {page} 页API返回错误", "ERROR")
+                        if data:
+                            log(f"   错误详情: {data.get('message', '未知错误')}", "ERROR")
                 
-                if data and data.get('code') == 200 and 'data' in data and 'list' in data['data']:
-                    suppliers = self.extract_suppliers_from_category_api(data['data']['list'])
-                    
-                    # 为每个供应商添加分类信息
-                    for supplier in suppliers:
-                        supplier['category_id'] = category_id
-                        supplier['category_name'] = category_name
-                        supplier['save_path'] = save_path
-                    
-                    all_suppliers.extend(suppliers)
-                    print(f"第 {page} 页获取到 {len(suppliers)} 个供应商")
-                    
-                    # 打印分页信息
-                    if 'page' in data['data']:
-                        page_info = data['data']['page']
-                        print(f"分页信息: {page_info}")
-                    
-                    # 打印前3个供应商的ID用于调试
-                    if suppliers:
-                        supplier_ids = [s['company_id'] for s in suppliers[:3]]
-                        print(f"第{page}页前3个供应商ID: {supplier_ids}")
-                else:
-                    print(f"第 {page} 页API返回错误: {data}")
+                except Exception as e:
+                    log(f"❌ 爬取第 {page} 页时出错: {e}", "ERROR")
+                    continue
                 
                 # 延迟
                 if page < end_page:
-                    await asyncio.sleep(random.uniform(2, 5))
+                    delay = random.uniform(2, 5)
+                    log(f"⏱️  等待 {delay:.1f} 秒后继续下一页...")
+                    await asyncio.sleep(delay)
         
-        # 保存供应商数据
-        await self.save_suppliers(all_suppliers, skip_duplicates)
+        # Excel文件更新已移除
+        
+        # 总结
+        log(f"🎉 分类爬取完成！", "SUCCESS")
+        log(f"📊 总计: 新增 {total_saved} 个供应商，跳过 {total_skipped} 个重复", "SUCCESS")
+        log("=" * 60)
         
         # 如果需要提取执照
         if extract_licenses and all_suppliers:
-            print("开始提取执照信息...")
+            log("开始提取执照信息...")
             await self.extract_licenses_from_database(proxy)
         
         return all_suppliers
@@ -875,31 +961,20 @@ class AlibabaSupplierCrawler:
         
         return suppliers
     
-    async def save_suppliers(self, suppliers, skip_duplicates=True):
-        """保存供应商数据"""
-        if not suppliers:
-            print("没有供应商数据需要保存")
-            return
-        
-        # 保存到数据库
+    async def save_single_supplier(self, supplier, skip_duplicates=True):
+        """实时保存单个供应商数据"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        saved_count = 0
-        skipped_count = 0
-        
-        for supplier in suppliers:
+        try:
             if skip_duplicates:
                 # 检查是否已存在
                 cursor.execute('SELECT company_id FROM suppliers WHERE company_id = ?', (supplier['company_id'],))
                 existing = cursor.fetchone()
                 
                 if existing:
-                    skipped_count += 1
-                    print(f"跳过重复供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
-                    continue
-                else:
-                    print(f"新增供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+                    print(f"  ✓ 跳过重复供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+                    return False
             
             cursor.execute('''
                 INSERT INTO suppliers (company_id, company_name, action_url, country_code, 
@@ -932,19 +1007,39 @@ class AlibabaSupplierCrawler:
                 supplier.get('category_name', ''),
                 supplier.get('save_path', '')
             ))
-            saved_count += 1
+            
+            conn.commit()
+            print(f"  ✓ 成功保存供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+            return True
+            
+        except Exception as e:
+            print(f"  ✗ 保存供应商失败: {supplier['company_name']} - {e}")
+            return False
+        finally:
+            conn.close()
+    
+    async def save_suppliers(self, suppliers, skip_duplicates=True):
+        """批量保存供应商数据（保持向后兼容）"""
+        if not suppliers:
+            print("没有供应商数据需要保存")
+            return
         
-        conn.commit()
-        conn.close()
+        saved_count = 0
+        skipped_count = 0
         
-        # 保存到Excel
-        df = pd.DataFrame(suppliers)
-        df.to_excel('alibaba_suppliers.xlsx', index=False)
+        for supplier in suppliers:
+            result = await self.save_single_supplier(supplier, skip_duplicates)
+            if result:
+                saved_count += 1
+            else:
+                skipped_count += 1
+        
+        # Excel文件更新已移除
         
         if skip_duplicates:
-            print(f"成功保存 {saved_count} 个供应商数据，跳过 {skipped_count} 个重复数据")
+            print(f"批量保存完成: {saved_count} 个新增，{skipped_count} 个重复")
         else:
-            print(f"成功保存 {saved_count} 个供应商数据（包括重复数据）")
+            print(f"批量保存完成: {saved_count} 个供应商数据")
     
     async def check_image_size(self, url, base_name, file_ext):
         """异步检查单个图片大小"""
@@ -1763,4 +1858,4 @@ class AlibabaSupplierCrawlerGUI:
 
 if __name__ == "__main__":
     app = AlibabaSupplierCrawlerGUI()
-    app.run() 
+    app.run()
