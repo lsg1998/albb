@@ -32,13 +32,15 @@ if %errorlevel% equ 0 (
         echo.
         echo 📄 复制必要文件...
         copy "cary.json" "dist\" >nul
+        copy "gatewayService.json" "dist\" >nul
         echo ✅ 已复制 cary.json 到 dist\ 目录
+        echo ✅ 已复制 gatewayService.json 到 dist\ 目录
         echo.
         echo 🎉 打包完成！
         echo 📁 可执行文件位置: dist\阿里巴巴供应商爬虫.exe
         echo 📋 使用说明:
         echo 1. 双击运行 阿里巴巴供应商爬虫.exe
-        echo 2. 确保 cary.json 文件在同一目录
+        echo 2. 确保 cary.json 和 gatewayService.json 文件在同一目录
         echo 3. 首次运行会自动创建数据库文件
     ) else (
         echo ❌ 可执行文件生成失败
@@ -48,4 +50,4 @@ if %errorlevel% equ 0 (
 )
 
 echo.
-pause 
+pause
