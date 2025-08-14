@@ -39,6 +39,281 @@ class AlibabaSupplierCrawler:
             else:
                 prefix = "ℹ️"
             print(f"{prefix} {message}")
+    
+    async def save_suppliers_to_cache_file(self, suppliers, cache_file_base, log_callback=None):
+        """将供应商数据保存到缓存文件（按时间分文件）"""
+        try:
+            # 生成带时间戳的文件名（每5分钟一个文件）
+            now = datetime.now()
+            # 计算5分钟间隔的时间戳
+            interval_minutes = (now.hour * 60 + now.minute) // 5 * 5
+            time_suffix = f"{now.strftime('%Y%m%d')}_{interval_minutes:04d}"
+            
+            # 构建实际文件路径
+            cache_dir = os.path.dirname(cache_file_base)
+            base_name = os.path.splitext(os.path.basename(cache_file_base))[0]
+            actual_cache_file = os.path.join(cache_dir, f"{base_name}_{time_suffix}.json")
+            
+            # 确保缓存目录存在
+            if cache_dir and not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+            
+            # 读取现有数据
+            existing_data = []
+            if os.path.exists(actual_cache_file):
+                try:
+                    with open(actual_cache_file, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                except (json.JSONDecodeError, FileNotFoundError):
+                    existing_data = []
+            
+            # 添加新数据
+            existing_data.extend(suppliers)
+            
+            # 写入文件
+            with open(actual_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(existing_data, f, ensure_ascii=False, indent=2)
+            
+            if log_callback:
+                log_callback(f"✅ 已将 {len(suppliers)} 个供应商数据保存到缓存文件: {actual_cache_file}")
+            
+            return actual_cache_file
+            
+        except Exception as e:
+            error_msg = f"❌ 保存缓存文件失败: {str(e)}"
+            if log_callback:
+                log_callback(error_msg, "ERROR")
+            else:
+                print(error_msg)
+            return None
+    
+    async def batch_save_from_cache_file(self, cache_file, skip_duplicates=True, log_callback=None):
+        """从缓存文件批量保存到数据库（优化版本）"""
+        try:
+            if not os.path.exists(cache_file):
+                if log_callback:
+                    log_callback(f"⚠️ 缓存文件不存在: {cache_file}", "WARNING")
+                return 0
+            
+            # 读取缓存数据
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                suppliers_data = json.load(f)
+            
+            if not suppliers_data:
+                if log_callback:
+                    log_callback("📭 缓存文件为空，无数据需要入库")
+                return 0
+            
+            if log_callback:
+                log_callback(f"📦 开始批量入库，共 {len(suppliers_data)} 个供应商数据")
+            
+            # 性能优化：一次性加载所有已存在的company_id到内存
+            existing_company_ids = set()
+            if skip_duplicates:
+                if log_callback:
+                    log_callback("🔍 正在加载已存在的供应商ID到内存...")
+                
+                conn = sqlite3.connect(self.db_path, timeout=10.0)
+                cursor = conn.cursor()
+                cursor.execute('SELECT company_id FROM suppliers')
+                for row in cursor.fetchall():
+                    existing_company_ids.add(row[0])
+                conn.close()
+                
+                if log_callback:
+                    log_callback(f"✅ 已加载 {len(existing_company_ids)} 个已存在的供应商ID")
+            
+            # 过滤出需要保存的新供应商
+            new_suppliers = []
+            skipped_count = 0
+            
+            for supplier in suppliers_data:
+                if skip_duplicates and supplier['company_id'] in existing_company_ids:
+                    skipped_count += 1
+                    if log_callback and skipped_count <= 10:  # 只显示前10个重复的
+                        log_callback(f"  ✓ 跳过重复供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+                else:
+                    # 生成保存路径
+                    save_path = self.generate_save_path(supplier)
+                    supplier['save_path'] = save_path
+                    new_suppliers.append(supplier)
+                    # 更新内存中的ID集合，避免同一批次内的重复
+                    existing_company_ids.add(supplier['company_id'])
+            
+            if log_callback:
+                log_callback(f"📊 过滤完成：新增 {len(new_suppliers)} 个，跳过重复 {skipped_count} 个")
+            
+            # 批量插入新供应商
+            saved_count = 0
+            if new_suppliers:
+                if log_callback:
+                    log_callback(f"💾 开始批量插入 {len(new_suppliers)} 个新供应商...")
+                
+                # 分批处理，避免长时间锁定数据库
+                batch_size = 50  # 每批50个供应商
+                total_batches = (len(new_suppliers) + batch_size - 1) // batch_size
+                
+                batch_num = 0
+                while batch_num < total_batches:
+                    start_idx = batch_num * batch_size
+                    end_idx = min(start_idx + batch_size, len(new_suppliers))
+                    batch_suppliers = new_suppliers[start_idx:end_idx]
+                    
+                    if log_callback:
+                        log_callback(f"🔄 开始处理批次 {batch_num + 1}/{total_batches}，包含 {len(batch_suppliers)} 个供应商")
+                    
+                    # 每批使用独立的数据库连接和事务
+                    conn = None
+                    retry_count = 0
+                    max_retries = 3
+                    batch_success = False
+                    
+                    while retry_count < max_retries and not batch_success:
+                        try:
+                            if retry_count > 0 and log_callback:
+                                log_callback(f"🔄 批次 {batch_num + 1} 第 {retry_count + 1} 次尝试")
+                            
+                            if log_callback:
+                                log_callback(f"🔗 正在连接数据库...")
+                            
+                            conn = sqlite3.connect(self.db_path, timeout=60.0)  # 增加超时时间
+                            conn.execute('PRAGMA journal_mode=DELETE')  # 改为DELETE模式避免WAL锁定
+                            conn.execute('PRAGMA synchronous=OFF')  # 关闭同步以提高性能
+                            conn.execute('PRAGMA busy_timeout=60000')  # 60秒超时
+                            conn.execute('PRAGMA cache_size=10000')  # 增加缓存
+                            cursor = conn.cursor()
+                            
+                            if log_callback:
+                                log_callback(f"✅ 数据库连接成功，开始事务")
+                            
+                            # 使用普通事务而不是IMMEDIATE，减少锁定
+                            conn.execute('BEGIN')
+                            
+                            if log_callback:
+                                log_callback(f"📝 开始插入批次 {batch_num + 1} 的 {len(batch_suppliers)} 个供应商")
+                            
+                            batch_saved = 0
+                            for i, supplier in enumerate(batch_suppliers):
+                                try:
+                                    cursor.execute('''
+                                        INSERT INTO suppliers (company_id, company_name, action_url, country_code, 
+                                                           city, gold_years, verified_supplier, is_factory, 
+                                                           review_score, review_count, company_on_time_shipping,
+                                                           factory_size_text, total_employees_text, transaction_count_6months,
+                                                           transaction_gmv_6months_text, gold_supplier, trade_assurance, response_time,
+                                                           category_id, category_name, save_path)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        supplier['company_id'],
+                                        supplier['company_name'],
+                                        supplier['action_url'],
+                                        supplier['country_code'],
+                                        supplier['city'],
+                                        supplier['gold_years'],
+                                        supplier['verified_supplier'],
+                                        supplier['is_factory'],
+                                        supplier['review_score'],
+                                        supplier['review_count'],
+                                        supplier.get('company_on_time_shipping', ''),
+                                        supplier.get('factory_size_text', ''),
+                                        supplier.get('total_employees_text', ''),
+                                        supplier.get('transaction_count_6months', ''),
+                                        supplier.get('transaction_gmv_6months_text', ''),
+                                        supplier.get('gold_supplier', False),
+                                        supplier.get('trade_assurance', False),
+                                        supplier.get('response_time', ''),
+                                        supplier.get('category_id', ''),
+                                        supplier.get('category_name', ''),
+                                        supplier['save_path']
+                                    ))
+                                    batch_saved += 1
+                                    saved_count += 1
+                                    
+                                    # 每10个显示一次进度
+                                    if (i + 1) % 10 == 0 and log_callback:
+                                        log_callback(f"  📊 批次 {batch_num + 1} 进度: {i + 1}/{len(batch_suppliers)} 已插入")
+                                
+                                except Exception as e:
+                                    if log_callback:
+                                        log_callback(f"⚠️ 插入供应商失败 {supplier.get('company_name', 'Unknown')}: {str(e)}", "WARNING")
+                                    continue
+                            
+                            # 提交当前批次
+                            conn.commit()
+                            batch_success = True
+                            
+                            if log_callback:
+                                log_callback(f"✅ 批次 {batch_num + 1}/{total_batches} 成功完成: 保存 {batch_saved} 个供应商")
+                            
+                            # 短暂休息，让其他操作有机会访问数据库
+                            await asyncio.sleep(0.1)
+                            
+                        except sqlite3.OperationalError as e:
+                            if conn:
+                                try:
+                                    conn.rollback()
+                                    if log_callback:
+                                        log_callback(f"🔄 批次 {batch_num + 1} 事务已回滚")
+                                except Exception as rollback_e:
+                                    if log_callback:
+                                        log_callback(f"⚠️ 回滚失败: {str(rollback_e)}", "WARNING")
+                            
+                            if "database is locked" in str(e):
+                                retry_count += 1
+                                if log_callback:
+                                    log_callback(f"⚠️ 数据库锁定，批次 {batch_num + 1} 第 {retry_count} 次重试 (最多 {max_retries} 次)", "WARNING")
+                                if retry_count < max_retries:
+                                    await asyncio.sleep(retry_count * 2.0)  # 递增延迟
+                                else:
+                                    if log_callback:
+                                        log_callback(f"❌ 批次 {batch_num + 1} 重试次数已达上限，跳过该批次", "ERROR")
+                            else:
+                                if log_callback:
+                                    log_callback(f"❌ 批次 {batch_num + 1} 数据库操作错误: {str(e)}", "ERROR")
+                                break  # 非锁定错误，跳出重试循环
+                        except Exception as e:
+                            if conn:
+                                try:
+                                    conn.rollback()
+                                    if log_callback:
+                                        log_callback(f"🔄 批次 {batch_num + 1} 事务已回滚")
+                                except Exception as rollback_e:
+                                    if log_callback:
+                                        log_callback(f"⚠️ 回滚失败: {str(rollback_e)}", "WARNING")
+                            
+                            if log_callback:
+                                log_callback(f"❌ 批次 {batch_num + 1} 未知错误: {str(e)}", "ERROR")
+                            break  # 其他错误，跳出重试循环
+                        finally:
+                            if conn:
+                                try:
+                                    conn.close()
+                                except Exception as close_e:
+                                    if log_callback:
+                                        log_callback(f"⚠️ 关闭数据库连接失败: {str(close_e)}", "WARNING")
+                    
+                    if not batch_success:
+                        if log_callback:
+                            log_callback(f"❌ 批次 {batch_num + 1} 最终失败，已跳过该批次", "ERROR")
+                    
+                    batch_num += 1
+            
+            # 入库完成后清空缓存文件
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump([], f)
+            
+            if log_callback:
+                log_callback(f"✅ 批量入库完成！新增: {saved_count} 个，跳过重复: {skipped_count} 个", "SUCCESS")
+            
+            return saved_count
+            
+        except Exception as e:
+            error_msg = f"❌ 批量入库失败: {str(e)}"
+            if log_callback:
+                log_callback(error_msg, "ERROR")
+            else:
+                print(error_msg)
+            return 0
         
     def init_database(self):
         """初始化数据库"""
@@ -577,7 +852,7 @@ class AlibabaSupplierCrawler:
         """爬取供应商数据（兼容旧版本）"""
         return await self.crawl_suppliers_range(keyword, 1, pages, proxy, extract_licenses)
     
-    async def crawl_suppliers_range(self, keyword, start_page=1, end_page=1, proxy=None, extract_licenses=False, skip_duplicates=True, log_callback=None):
+    async def crawl_suppliers_range(self, keyword, start_page=1, end_page=1, proxy=None, extract_licenses=False, skip_duplicates=True, log_callback=None, save_to_file=False, cache_file=None):
         """爬取指定页面范围的供应商数据"""
         try:
             all_suppliers = []
@@ -596,6 +871,8 @@ class AlibabaSupplierCrawler:
                     print(message)
             
             log(f"🚀 开始爬取关键词: '{keyword}'，页面范围: {start_page}-{end_page}")
+            if save_to_file:
+                log(f"📁 数据将保存到文件: {cache_file}")
             log("=" * 60)
             
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
@@ -614,27 +891,36 @@ class AlibabaSupplierCrawler:
                             suppliers = self.extract_suppliers_from_api(data['model']['offers'])
                             log(f"📦 第 {page} 页获取到 {len(suppliers)} 个供应商")
                             
-                            # 实时保存每个供应商
                             if suppliers:
-                                log(f"💾 开始保存第 {page} 页的供应商数据...")
-                                page_saved = 0
-                                page_skipped = 0
-                                
-                                for i, supplier in enumerate(suppliers, 1):
-                                    # 为关键词搜索添加关键词信息
+                                # 为每个供应商添加关键词信息
+                                for supplier in suppliers:
                                     supplier['keyword'] = keyword
-                                    result = await self.save_single_supplier(supplier, skip_duplicates)
-                                    if result:
-                                        page_saved += 1
-                                        total_saved += 1
-                                    else:
-                                        page_skipped += 1
-                                        total_skipped += 1
-                                    
-                                    # 显示进度
-                                    log(f"  📊 进度: {i}/{len(suppliers)} - 新增: {page_saved}, 重复: {page_skipped}")
+                                    supplier['crawl_time'] = datetime.now().isoformat()
                                 
-                                log(f"✅ 第 {page} 页保存完成: 新增 {page_saved} 个，跳过 {page_skipped} 个重复", "SUCCESS")
+                                if save_to_file:
+                                    # 保存到文件
+                                    await self.save_suppliers_to_cache_file(suppliers, cache_file, log_callback=log)
+                                    log(f"📁 第 {page} 页数据已保存到缓存文件")
+                                else:
+                                    # 实时保存到数据库
+                                    log(f"💾 开始保存第 {page} 页的供应商数据...")
+                                    page_saved = 0
+                                    page_skipped = 0
+                                    
+                                    for i, supplier in enumerate(suppliers, 1):
+                                        result = await self.save_single_supplier(supplier, skip_duplicates)
+                                        if result:
+                                            page_saved += 1
+                                            total_saved += 1
+                                        else:
+                                            page_skipped += 1
+                                            total_skipped += 1
+                                        
+                                        # 显示进度
+                                        log(f"  📊 进度: {i}/{len(suppliers)} - 新增: {page_saved}, 重复: {page_skipped}")
+                                    
+                                    log(f"✅ 第 {page} 页保存完成: 新增 {page_saved} 个，跳过 {page_skipped} 个重复", "SUCCESS")
+                                
                                 all_suppliers.extend(suppliers)
                             
                             # 打印API响应的分页信息（简化版）
@@ -1062,64 +1348,93 @@ class AlibabaSupplierCrawler:
     
     async def save_single_supplier(self, supplier, skip_duplicates=True):
         """实时保存单个供应商数据"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        max_retries = 3
+        retry_delay = 0.5  # 500ms
         
-        try:
-            if skip_duplicates:
-                # 检查是否已存在
-                cursor.execute('SELECT company_id FROM suppliers WHERE company_id = ?', (supplier['company_id'],))
-                existing = cursor.fetchone()
+        for attempt in range(max_retries):
+            conn = None
+            try:
+                # 设置数据库连接超时和WAL模式
+                conn = sqlite3.connect(self.db_path, timeout=10.0)
+                conn.execute('PRAGMA journal_mode=WAL')
+                conn.execute('PRAGMA synchronous=NORMAL')
+                conn.execute('PRAGMA busy_timeout=10000')  # 10秒超时
+                cursor = conn.cursor()
                 
-                if existing:
-                    print(f"  ✓ 跳过重复供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+                # 开始事务
+                conn.execute('BEGIN IMMEDIATE')
+                
+                if skip_duplicates:
+                    # 检查是否已存在
+                    cursor.execute('SELECT company_id FROM suppliers WHERE company_id = ?', (supplier['company_id'],))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        print(f"  ✓ 跳过重复供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+                        conn.rollback()
+                        return False
+                
+                # 生成保存路径
+                save_path = self.generate_save_path(supplier)
+                supplier['save_path'] = save_path
+                
+                cursor.execute('''
+                    INSERT INTO suppliers (company_id, company_name, action_url, country_code, 
+                                       city, gold_years, verified_supplier, is_factory, 
+                                       review_score, review_count, company_on_time_shipping,
+                                       factory_size_text, total_employees_text, transaction_count_6months,
+                                       transaction_gmv_6months_text, gold_supplier, trade_assurance, response_time,
+                                       category_id, category_name, save_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    supplier['company_id'],
+                    supplier['company_name'],
+                    supplier['action_url'],
+                    supplier['country_code'],
+                    supplier['city'],
+                    supplier['gold_years'],
+                    supplier['verified_supplier'],
+                    supplier['is_factory'],
+                    supplier['review_score'],
+                    supplier['review_count'],
+                    supplier.get('company_on_time_shipping', ''),
+                    supplier.get('factory_size_text', ''),
+                    supplier.get('total_employees_text', ''),
+                    supplier.get('transaction_count_6months', ''),
+                    supplier.get('transaction_gmv_6months_text', ''),
+                    supplier.get('gold_supplier', False),
+                    supplier.get('trade_assurance', False),
+                    supplier.get('response_time', ''),
+                    supplier.get('category_id', ''),
+                    supplier.get('category_name', ''),
+                    save_path
+                ))
+                
+                conn.commit()
+                print(f"  ✓ 成功保存供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
+                return True
+                
+            except sqlite3.OperationalError as e:
+                if conn:
+                    conn.rollback()
+                
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    print(f"  ⚠️ 数据库锁定，第 {attempt + 1} 次重试: {supplier['company_name']}")
+                    await asyncio.sleep(retry_delay * (attempt + 1))  # 递增延迟
+                    continue
+                else:
+                    print(f"  ✗ 保存供应商失败: {supplier['company_name']} - {e}")
                     return False
-            
-            # 生成保存路径
-            save_path = self.generate_save_path(supplier)
-            supplier['save_path'] = save_path
-            
-            cursor.execute('''
-                INSERT INTO suppliers (company_id, company_name, action_url, country_code, 
-                                   city, gold_years, verified_supplier, is_factory, 
-                                   review_score, review_count, company_on_time_shipping,
-                                   factory_size_text, total_employees_text, transaction_count_6months,
-                                   transaction_gmv_6months_text, gold_supplier, trade_assurance, response_time,
-                                   category_id, category_name, save_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                supplier['company_id'],
-                supplier['company_name'],
-                supplier['action_url'],
-                supplier['country_code'],
-                supplier['city'],
-                supplier['gold_years'],
-                supplier['verified_supplier'],
-                supplier['is_factory'],
-                supplier['review_score'],
-                supplier['review_count'],
-                supplier.get('company_on_time_shipping', ''),
-                supplier.get('factory_size_text', ''),
-                supplier.get('total_employees_text', ''),
-                supplier.get('transaction_count_6months', ''),
-                supplier.get('transaction_gmv_6months_text', ''),
-                supplier.get('gold_supplier', False),
-                supplier.get('trade_assurance', False),
-                supplier.get('response_time', ''),
-                supplier.get('category_id', ''),
-                supplier.get('category_name', ''),
-                save_path
-            ))
-            
-            conn.commit()
-            print(f"  ✓ 成功保存供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
-            return True
-            
-        except Exception as e:
-            print(f"  ✗ 保存供应商失败: {supplier['company_name']} - {e}")
-            return False
-        finally:
-            conn.close()
+            except Exception as e:
+                if conn:
+                    conn.rollback()
+                print(f"  ✗ 保存供应商失败: {supplier['company_name']} - {e}")
+                return False
+            finally:
+                if conn:
+                    conn.close()
+        
+        return False
     
     async def save_suppliers(self, suppliers, skip_duplicates=True):
         """批量保存供应商数据（保持向后兼容）"""

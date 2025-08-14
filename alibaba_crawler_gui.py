@@ -81,9 +81,15 @@ class AlibabaCrawlerGUI:
         
         # 关键词输入
         ttk.Label(input_frame, text="搜索关键词:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.keyword_entry = ttk.Entry(input_frame, width=50)
+        keyword_frame = ttk.Frame(input_frame)
+        keyword_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5, padx=(10, 0))
+        
+        self.keyword_entry = ttk.Entry(keyword_frame, width=40)
         self.keyword_entry.insert(0, "men's perfume")
-        self.keyword_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5, padx=(10, 0))
+        self.keyword_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # 快捷选择按钮
+        ttk.Button(keyword_frame, text="快捷选择", command=self.show_category_selector).pack(side=tk.LEFT, padx=(5, 0))
         
         # 分类选择
         ttk.Label(input_frame, text="选择分类:").grid(row=2, column=0, sticky=tk.W, pady=5)
@@ -131,6 +137,12 @@ class AlibabaCrawlerGUI:
         
         self.start_crawl_btn = ttk.Button(button_frame, text="开始获取供应商", command=self.start_crawl)
         self.start_crawl_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.batch_crawl_btn = ttk.Button(button_frame, text="一键爬取", command=self.show_batch_crawl_dialog)
+        self.batch_crawl_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.batch_save_btn = ttk.Button(button_frame, text="批量入库", command=self.show_batch_save_dialog)
+        self.batch_save_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         self.stop_crawl_btn = ttk.Button(button_frame, text="停止", command=self.stop_crawl, state=tk.DISABLED)
         self.stop_crawl_btn.pack(side=tk.LEFT)
@@ -386,6 +398,7 @@ class AlibabaCrawlerGUI:
         ttk.Button(db_btn_frame, text="清空数据库", command=self.clear_database).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(db_btn_frame, text="导出选中", command=self.export_selected_suppliers).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(db_btn_frame, text="导出全部", command=self.export_all_suppliers).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(db_btn_frame, text="自动识别本地文件", command=self.auto_recognize_local_files).pack(side=tk.LEFT, padx=(0, 10))
         
         # 搜索框
         search_frame = ttk.Frame(control_frame)
@@ -1856,6 +1869,146 @@ class AlibabaCrawlerGUI:
         if selected and " - " in selected:
             return selected.split(" - ")[0]
         return None
+    
+    def load_gateway_categories(self):
+        """加载gatewayService.json中的分类数据"""
+        try:
+            with open('gatewayService.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            if data and 'data' in data and 'categoryList' in data['data']:
+                categories = []
+                self._extract_categories(data['data']['categoryList'], categories, "")
+                return categories
+            else:
+                print("gatewayService.json文件格式不正确")
+                return []
+        except FileNotFoundError:
+            print("未找到gatewayService.json文件")
+            return []
+        except Exception as e:
+            print(f"加载gatewayService.json失败: {e}")
+            return []
+    
+    def _extract_categories(self, category_list, result, prefix):
+        """递归提取分类名称"""
+        for category in category_list:
+            name = category.get('name', '')
+            level = category.get('level', '1')
+            
+            # 根据层级添加缩进
+            indent = "  " * (int(level) - 1)
+            display_name = f"{indent}{name}"
+            
+            if prefix:
+                full_name = f"{prefix} > {name}"
+            else:
+                full_name = name
+                
+            result.append({
+                'display': display_name,
+                'name': name,
+                'full_path': full_name,
+                'level': level
+            })
+            
+            # 递归处理子分类
+            if 'categoryList' in category and category['categoryList']:
+                self._extract_categories(category['categoryList'], result, full_name)
+    
+    def show_category_selector(self):
+        """显示分类选择对话框"""
+        categories = self.load_gateway_categories()
+        if not categories:
+            messagebox.showwarning("提示", "无法加载分类数据，请确保gatewayService.json文件存在")
+            return
+        
+        # 创建选择对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("选择分类关键词")
+        dialog.geometry("500x600")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # 搜索框
+        search_frame = ttk.Frame(dialog)
+        search_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(search_frame, text="搜索:").pack(side=tk.LEFT)
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        
+        # 分类列表
+        list_frame = ttk.Frame(dialog)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        
+        # 创建Treeview来显示分层结构
+        tree = ttk.Treeview(list_frame, columns=('path',), show='tree headings')
+        tree.heading('#0', text='分类名称')
+        tree.heading('path', text='完整路径')
+        tree.column('#0', width=200)
+        tree.column('path', width=280)
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 填充数据
+        def populate_tree(filter_text=""):
+            tree.delete(*tree.get_children())
+            for category in categories:
+                if not filter_text or filter_text.lower() in category['name'].lower():
+                    tree.insert('', 'end', text=category['display'], 
+                              values=(category['full_path'],), 
+                              tags=(category['name'],))
+        
+        populate_tree()
+        
+        # 搜索功能
+        def on_search(*args):
+            populate_tree(search_var.get())
+        
+        search_var.trace('w', on_search)
+        
+        # 按钮区域
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        def on_select():
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                category_name = item['tags'][0] if item['tags'] else item['text'].strip()
+                self.keyword_entry.delete(0, tk.END)
+                self.keyword_entry.insert(0, category_name)
+                dialog.destroy()
+            else:
+                messagebox.showwarning("提示", "请选择一个分类")
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text="确定", command=on_select).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="取消", command=on_cancel).pack(side=tk.RIGHT)
+        
+        # 双击选择
+        def on_double_click(event):
+            on_select()
+        
+        tree.bind('<Double-1>', on_double_click)
+        
+        # 设置焦点
+        search_entry.focus_set()
 
     def show_context_menu(self, event):
         """显示右键菜单"""
@@ -2915,6 +3068,711 @@ class AlibabaCrawlerGUI:
             
         except Exception as e:
             messagebox.showerror("错误", f"删除失败: {e}")
+    
+    def auto_recognize_local_files(self):
+        """自动识别本地文件并更新数据库"""
+        try:
+            # 获取保存路径
+            base_path = self.save_path_var.get().strip()
+            if not base_path:
+                base_path = "./license_files"
+            
+            # 检查路径是否存在
+            if not os.path.exists(base_path):
+                messagebox.showwarning("提示", f"路径不存在: {base_path}")
+                return
+            
+            # 只扫描保存路径
+            paths_to_scan = []
+            
+            if os.path.exists(base_path):
+                paths_to_scan.append(base_path)
+            
+            if not paths_to_scan:
+                messagebox.showwarning("提示", "没有找到可扫描的目录")
+                return
+            
+            self.log_extract_message("开始自动识别本地文件...", "INFO")
+            
+            # 连接数据库
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            total_recognized = 0
+            total_updated = 0
+            
+            for scan_path in paths_to_scan:
+                self.log_extract_message(f"扫描路径: {scan_path}", "INFO")
+                
+                # 扫描所有子目录
+                for root, dirs, files in os.walk(scan_path):
+                    # 跳过根目录
+                    if root == scan_path:
+                        continue
+                    
+                    # 获取目录名（可能包含分类信息）
+                    dir_name = os.path.basename(root)
+                    
+                    # 检查是否有公司子目录
+                    company_dirs = [d for d in dirs if os.path.isdir(os.path.join(root, d))]
+                    
+                    if company_dirs:
+                        # 这是一个分类目录，包含公司子目录
+                        category_name = dir_name
+                        self.log_extract_message(f"发现分类目录: {category_name}", "INFO")
+                        
+                        for company_dir in company_dirs:
+                            company_name = company_dir
+                            company_path = os.path.join(root, company_dir)
+                            
+                            # 检查公司目录下是否有执照相关文件
+                            license_files = []
+                            for file in os.listdir(company_path):
+                                if any(keyword in file.lower() for keyword in ['执照', 'license', '营业', '证书']):
+                                    license_files.append(file)
+                            
+                            if license_files:
+                                total_recognized += 1
+                                
+                                # 查找数据库中是否存在该公司（支持多种匹配方式）
+                                # 1. 精确匹配
+                                cursor.execute('SELECT company_id, license_extracted FROM suppliers WHERE company_name = ?', (company_name,))
+                                supplier_info = cursor.fetchone()
+                                
+                                # 2. 如果精确匹配失败，尝试带句号匹配
+                                if not supplier_info:
+                                    cursor.execute('SELECT company_id, license_extracted FROM suppliers WHERE company_name = ?', (company_name + '.',))
+                                    supplier_info = cursor.fetchone()
+                                
+                                # 3. 如果仍然失败，尝试模糊匹配（处理轻微拼写差异）
+                                if not supplier_info:
+                                    cursor.execute('SELECT company_id, license_extracted, company_name FROM suppliers WHERE company_name LIKE ?', (f'%{company_name}%',))
+                                    fuzzy_results = cursor.fetchall()
+                                    if fuzzy_results:
+                                        # 选择最相似的匹配（长度最接近的）
+                                        best_match = min(fuzzy_results, key=lambda x: abs(len(x[2]) - len(company_name)))
+                                        supplier_info = (best_match[0], best_match[1])
+                                        self.log_extract_message(f"模糊匹配成功: {company_name} -> {best_match[2]}", "INFO")
+                                
+                                if supplier_info:
+                                    company_id, license_extracted = supplier_info
+                                    
+                                    # 如果还未标记为已提取，则更新
+                                    if not license_extracted:
+                                        cursor.execute('UPDATE suppliers SET license_extracted = TRUE, save_path = ? WHERE company_id = ?', 
+                                                     (company_path, company_id))
+                                        total_updated += 1
+                                        self.log_extract_message(f"已更新: {company_name} (分类: {category_name})", "SUCCESS")
+                                    else:
+                                        self.log_extract_message(f"已存在: {company_name} (分类: {category_name})", "INFO")
+                                else:
+                                    self.log_extract_message(f"数据库中未找到: {company_name}", "WARNING")
+                    else:
+                        # 检查当前目录是否直接包含执照文件（可能是公司目录）
+                        license_files = []
+                        for file in files:
+                            if any(keyword in file.lower() for keyword in ['执照', 'license', '营业', '证书']):
+                                license_files.append(file)
+                        
+                        if license_files:
+                            company_name = dir_name
+                            total_recognized += 1
+                            
+                            # 查找数据库中是否存在该公司（支持多种匹配方式）
+                            # 1. 精确匹配
+                            cursor.execute('SELECT company_id, license_extracted FROM suppliers WHERE company_name = ?', (company_name,))
+                            supplier_info = cursor.fetchone()
+                            
+                            # 2. 如果精确匹配失败，尝试带句号匹配
+                            if not supplier_info:
+                                cursor.execute('SELECT company_id, license_extracted FROM suppliers WHERE company_name = ?', (company_name + '.',))
+                                supplier_info = cursor.fetchone()
+                            
+                            # 3. 如果仍然失败，尝试模糊匹配（处理轻微拼写差异）
+                            if not supplier_info:
+                                cursor.execute('SELECT company_id, license_extracted, company_name FROM suppliers WHERE company_name LIKE ?', (f'%{company_name}%',))
+                                fuzzy_results = cursor.fetchall()
+                                if fuzzy_results:
+                                    # 选择最相似的匹配（长度最接近的）
+                                    best_match = min(fuzzy_results, key=lambda x: abs(len(x[2]) - len(company_name)))
+                                    supplier_info = (best_match[0], best_match[1])
+                                    self.log_extract_message(f"模糊匹配成功: {company_name} -> {best_match[2]}", "INFO")
+                            
+                            if supplier_info:
+                                company_id, license_extracted = supplier_info
+                                
+                                # 如果还未标记为已提取，则更新
+                                if not license_extracted:
+                                    cursor.execute('UPDATE suppliers SET license_extracted = TRUE, save_path = ? WHERE company_id = ?', 
+                                                 (root, company_id))
+                                    total_updated += 1
+                                    self.log_extract_message(f"已更新: {company_name}", "SUCCESS")
+                                else:
+                                    self.log_extract_message(f"已存在: {company_name}", "INFO")
+                            else:
+                                self.log_extract_message(f"数据库中未找到: {company_name}", "WARNING")
+            
+            conn.commit()
+            conn.close()
+            
+            self.log_extract_message(f"自动识别完成！识别到 {total_recognized} 个已有执照文件，更新了 {total_updated} 条记录", "SUCCESS")
+            
+            if total_updated > 0:
+                messagebox.showinfo("完成", f"自动识别完成！\n\n识别到 {total_recognized} 个已有执照文件\n更新了 {total_updated} 条数据库记录")
+            else:
+                messagebox.showinfo("完成", f"自动识别完成！\n\n识别到 {total_recognized} 个已有执照文件\n但没有需要更新的记录")
+                
+        except Exception as e:
+            self.log_extract_message(f"自动识别失败: {e}", "ERROR")
+            messagebox.showerror("错误", f"自动识别失败: {e}")
+
+    def show_batch_crawl_dialog(self):
+        """显示一键爬取对话框"""
+        categories = self.load_gateway_categories()
+        if not categories:
+            messagebox.showwarning("提示", "无法加载分类数据，请确保gatewayService.json文件存在")
+            return
+        
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("一键爬取设置")
+        dialog.geometry("600x700")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # 关键词选择区域
+        keyword_frame = ttk.LabelFrame(dialog, text="选择关键词", padding="10")
+        keyword_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 搜索框
+        search_frame = ttk.Frame(keyword_frame)
+        search_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(search_frame, text="搜索:").pack(side=tk.LEFT)
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        
+        # 全选/取消全选按钮
+        select_frame = ttk.Frame(search_frame)
+        select_frame.pack(side=tk.RIGHT)
+        
+        ttk.Button(select_frame, text="全选", command=lambda: self.select_all_keywords(tree)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(select_frame, text="取消全选", command=lambda: self.deselect_all_keywords(tree)).pack(side=tk.LEFT)
+        
+        # 关键词列表
+        list_frame = ttk.Frame(keyword_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建Treeview来显示分层结构
+        tree = ttk.Treeview(list_frame, columns=('selected',), show='tree headings')
+        tree.heading('#0', text='分类名称')
+        tree.heading('selected', text='选择')
+        tree.column('#0', width=400)
+        tree.column('selected', width=80)
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 存储选中状态
+        self.selected_keywords = set()
+        
+        # 填充数据
+        def populate_tree():
+            for category in categories:
+                display_name = category['display']
+                category_name = category['name']
+                level = int(category['level'])
+                
+                # 根据层级确定父节点
+                if level == 1:
+                    parent = ''
+                    item_id = tree.insert(parent, 'end', text=display_name, values=('',), tags=(category_name,))
+                    # 一级分类默认展开
+                    tree.item(item_id, open=True)
+                else:
+                    # 找到合适的父节点（这里简化处理，实际可能需要更复杂的逻辑）
+                    parent = ''
+                    for item in tree.get_children():
+                        if tree.item(item)['text'].strip() in display_name:
+                            parent = item
+                            break
+                    
+                    item_id = tree.insert(parent, 'end', text=display_name, values=('',), tags=(category_name,))
+        
+        populate_tree()
+        
+        # 绑定点击事件
+        def on_item_click(event):
+            item = tree.selection()[0] if tree.selection() else None
+            if item:
+                category_name = tree.item(item)['tags'][0] if tree.item(item)['tags'] else tree.item(item)['text'].strip()
+                if category_name in self.selected_keywords:
+                    self.selected_keywords.remove(category_name)
+                    tree.set(item, 'selected', '')
+                else:
+                    self.selected_keywords.add(category_name)
+                    tree.set(item, 'selected', '✓')
+        
+        tree.bind('<Button-1>', on_item_click)
+        
+        # 搜索功能
+        def filter_tree():
+            search_text = search_var.get().lower()
+            for item in tree.get_children(''):
+                self.filter_tree_item(tree, item, search_text)
+        
+        search_var.trace('w', lambda *args: filter_tree())
+        
+        # 设置区域
+        settings_frame = ttk.LabelFrame(dialog, text="爬取设置", padding="10")
+        settings_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        # 页面范围
+        page_frame = ttk.Frame(settings_frame)
+        page_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(page_frame, text="页面范围:").pack(side=tk.LEFT)
+        start_page_var = tk.StringVar(value="1")
+        ttk.Entry(page_frame, textvariable=start_page_var, width=8).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(page_frame, text="到").pack(side=tk.LEFT, padx=(5, 0))
+        end_page_var = tk.StringVar(value="5")
+        ttk.Entry(page_frame, textvariable=end_page_var, width=8).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 线程数设置
+        thread_frame = ttk.Frame(settings_frame)
+        thread_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(thread_frame, text="并发线程数:").pack(side=tk.LEFT)
+        thread_count_var = tk.StringVar(value="3")
+        ttk.Entry(thread_frame, textvariable=thread_count_var, width=8).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(thread_frame, text="(建议1-5个)").pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 间隔设置
+        delay_frame = ttk.Frame(settings_frame)
+        delay_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(delay_frame, text="关键词间隔(秒):").pack(side=tk.LEFT)
+        delay_var = tk.StringVar(value="2")
+        ttk.Entry(delay_frame, textvariable=delay_var, width=8).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(delay_frame, text="(避免被封IP)").pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 缓存模式设置
+        cache_frame = ttk.LabelFrame(settings_frame, text="缓存模式", padding="5")
+        cache_frame.pack(fill=tk.X, pady=10)
+        
+        cache_mode_var = tk.BooleanVar(value=True)
+        cache_check = ttk.Checkbutton(cache_frame, text="启用缓存模式（先保存到文件，每5分钟生成一个新文件）", variable=cache_mode_var)
+        cache_check.pack(anchor=tk.W)
+        
+        # 缓存文件路径
+        cache_path_frame = ttk.Frame(cache_frame)
+        cache_path_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Label(cache_path_frame, text="缓存文件:").pack(side=tk.LEFT)
+        cache_file_var = tk.StringVar(value="cache/suppliers_cache.json")
+        cache_file_entry = ttk.Entry(cache_path_frame, textvariable=cache_file_var, width=40)
+        cache_file_entry.pack(side=tk.LEFT, padx=(5, 5), fill=tk.X, expand=True)
+        
+        def select_cache_file():
+            filename = filedialog.asksaveasfilename(
+                title="选择缓存文件",
+                defaultextension=".json",
+                filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")],
+                initialfile="suppliers_cache.json"
+            )
+            if filename:
+                cache_file_var.set(filename)
+        
+        ttk.Button(cache_path_frame, text="选择", command=select_cache_file).pack(side=tk.RIGHT)
+        
+        # 按钮区域
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        def start_batch_crawl():
+            if not self.selected_keywords:
+                messagebox.showwarning("提示", "请至少选择一个关键词")
+                return
+            
+            try:
+                start_page = int(start_page_var.get())
+                end_page = int(end_page_var.get())
+                thread_count = int(thread_count_var.get())
+                delay = float(delay_var.get())
+                
+                if start_page <= 0 or end_page <= 0:
+                    messagebox.showerror("错误", "页面范围必须大于0")
+                    return
+                if start_page > end_page:
+                    messagebox.showerror("错误", "起始页面不能大于结束页面")
+                    return
+                if thread_count <= 0 or thread_count > 10:
+                    messagebox.showerror("错误", "线程数必须在1-10之间")
+                    return
+                if delay < 0:
+                    messagebox.showerror("错误", "间隔时间不能为负数")
+                    return
+                    
+            except ValueError:
+                messagebox.showerror("错误", "请输入有效的数字")
+                return
+            
+            # 获取缓存模式设置
+            cache_mode = cache_mode_var.get()
+            cache_file = cache_file_var.get().strip() if cache_mode else None
+            
+            if cache_mode and not cache_file:
+                messagebox.showerror("错误", "启用缓存模式时必须指定缓存文件路径")
+                return
+            
+            dialog.destroy()
+            self.start_batch_crawl_process(list(self.selected_keywords), start_page, end_page, thread_count, delay, cache_mode, cache_file)
+        
+        ttk.Button(button_frame, text="开始爬取", command=start_batch_crawl).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.RIGHT)
+        
+        # 设置焦点
+        search_entry.focus_set()
+    
+    def select_all_keywords(self, tree):
+        """全选关键词"""
+        for item in tree.get_children(''):
+            self.select_tree_item(tree, item, True)
+    
+    def deselect_all_keywords(self, tree):
+        """取消全选关键词"""
+        self.selected_keywords.clear()
+        for item in tree.get_children(''):
+            self.select_tree_item(tree, item, False)
+    
+    def select_tree_item(self, tree, item, select):
+        """递归选择/取消选择树项"""
+        category_name = tree.item(item)['tags'][0] if tree.item(item)['tags'] else tree.item(item)['text'].strip()
+        
+        if select:
+            self.selected_keywords.add(category_name)
+            tree.set(item, 'selected', '✓')
+        else:
+            tree.set(item, 'selected', '')
+        
+        # 递归处理子项
+        for child in tree.get_children(item):
+            self.select_tree_item(tree, child, select)
+    
+    def filter_tree_item(self, tree, item, search_text):
+        """过滤树项"""
+        item_text = tree.item(item)['text'].lower()
+        show_item = search_text in item_text
+        
+        # 检查子项
+        children = tree.get_children(item)
+        for child in children:
+            child_visible = self.filter_tree_item(tree, child, search_text)
+            show_item = show_item or child_visible
+        
+        # 显示或隐藏项目
+        if show_item:
+            tree.reattach(item, tree.parent(item), 'end')
+        else:
+            tree.detach(item)
+        
+        return show_item
+    
+    def start_batch_crawl_process(self, keywords, start_page, end_page, thread_count, delay, cache_mode=False, cache_file=None):
+        """开始批量爬取过程"""
+        # 禁用相关按钮
+        self.start_crawl_btn.config(state=tk.DISABLED)
+        self.batch_crawl_btn.config(state=tk.DISABLED)
+        self.stop_crawl_btn.config(state=tk.NORMAL)
+        
+        # 清空日志
+        self.crawl_log_text.delete("1.0", tk.END)
+        
+        # 设置进度条
+        total_keywords = len(keywords)
+        total_pages = (end_page - start_page + 1) * total_keywords
+        self.progress['maximum'] = total_pages
+        self.progress['value'] = 0
+        
+        self.log_crawl_message(f"开始一键爬取，共 {total_keywords} 个关键词，每个关键词爬取 {start_page}-{end_page} 页", "INFO")
+        self.log_crawl_message(f"并发线程数: {thread_count}，关键词间隔: {delay} 秒", "INFO")
+        
+        # 保存缓存模式设置
+        self.cache_mode = cache_mode
+        self.cache_file = cache_file
+        
+        if cache_mode:
+            self.log_crawl_message(f"启用缓存模式，数据将先保存到文件，每5分钟生成一个新文件", "INFO")
+            self.log_crawl_message(f"缓存文件基础路径: {cache_file}", "INFO")
+        
+        # 在新线程中运行批量爬取
+        self.batch_crawl_thread = threading.Thread(
+            target=self.run_batch_crawl, 
+            args=(keywords, start_page, end_page, thread_count, delay, cache_mode, cache_file)
+        )
+        self.batch_crawl_thread.daemon = True
+        self.batch_crawl_thread.start()
+    
+    def run_batch_crawl(self, keywords, start_page, end_page, thread_count, delay, cache_mode=False, cache_file=None):
+        """运行批量爬取"""
+        try:
+            # 获取代理设置
+            proxy = None
+            if self.use_proxy_var.get():
+                proxy = self.proxy
+            
+            # 获取跳过重复选项
+            skip_duplicates = self.skip_duplicates_var.get()
+            
+            total_suppliers = 0
+            current_keyword = 0
+            
+            for keyword in keywords:
+                current_keyword += 1
+                self.root.after(0, lambda k=keyword, c=current_keyword, t=len(keywords): 
+                    self.log_crawl_message(f"[{c}/{t}] 开始爬取关键词: {k}", "INFO"))
+                
+                try:
+                    # 运行异步爬虫
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    # 创建进度回调
+                    def progress_callback(current, total, message=""):
+                        progress_value = ((current_keyword - 1) * (end_page - start_page + 1) + current)
+                        self.root.after(0, lambda: self.progress.config(value=progress_value))
+                        if message:
+                            self.root.after(0, lambda m=message: self.log_crawl_message(m, "INFO"))
+                    
+                    # 创建爬虫实例
+                    crawler = AlibabaSupplierCrawler()
+                    
+                    # 设置进度回调
+                    crawler.progress_callback = progress_callback
+                    
+                    # 创建日志回调
+                    def log_callback(message, level="INFO"):
+                        self.root.after(0, lambda m=message, l=level: self.log_crawl_message(m, l))
+                    
+                    suppliers = loop.run_until_complete(
+                        crawler.crawl_suppliers_range(
+                            keyword, start_page, end_page, proxy, skip_duplicates=skip_duplicates, 
+                            log_callback=log_callback, save_to_file=cache_mode, cache_file=cache_file
+                        )
+                    )
+                    
+                    total_suppliers += len(suppliers)
+                    self.root.after(0, lambda k=keyword, count=len(suppliers): 
+                        self.log_crawl_message(f"关键词 '{k}' 爬取完成，获取 {count} 个供应商", "SUCCESS"))
+                    
+                    # 关键词间隔
+                    if current_keyword < len(keywords) and delay > 0:
+                        self.root.after(0, lambda d=delay: 
+                            self.log_crawl_message(f"等待 {d} 秒后继续下一个关键词...", "INFO"))
+                        import time
+                        time.sleep(delay)
+                        
+                except Exception as e:
+                    self.root.after(0, lambda k=keyword, err=str(e): 
+                        self.log_crawl_message(f"关键词 '{k}' 爬取失败: {err}", "ERROR"))
+                    continue
+            
+            # 完成
+            self.root.after(0, lambda total=total_suppliers: 
+                self.batch_crawl_finished(total))
+                
+        except Exception as e:
+            self.root.after(0, lambda err=str(e): self.batch_crawl_error(err))
+    
+    def batch_crawl_finished(self, total_suppliers):
+        """批量爬取完成"""
+        self.start_crawl_btn.config(state=tk.NORMAL)
+        self.batch_crawl_btn.config(state=tk.NORMAL)
+        self.stop_crawl_btn.config(state=tk.DISABLED)
+        
+        # 如果是缓存模式，提示使用批量入库功能
+        if hasattr(self, 'cache_mode') and self.cache_mode:
+            self.log_crawl_message(f"一键爬取完成！缓存模式共获取 {total_suppliers} 个供应商", "SUCCESS")
+            self.log_crawl_message("数据已保存到缓存文件，请使用'批量入库'按钮导入数据库", "INFO")
+            self.status_label.config(text="一键爬取完成")
+            messagebox.showinfo("完成", f"一键爬取完成！\n缓存模式共获取 {total_suppliers} 个供应商\n数据已保存到缓存文件，请使用'批量入库'按钮导入数据库")
+        else:
+            self.log_crawl_message(f"一键爬取完成！总共获取 {total_suppliers} 个供应商", "SUCCESS")
+            self.status_label.config(text="一键爬取完成")
+            
+            # 刷新数据库列表
+            self.refresh_db_list()
+            
+            messagebox.showinfo("完成", f"一键爬取完成！\n总共获取 {total_suppliers} 个供应商")
+    
+    def batch_crawl_error(self, error):
+        """批量爬取错误"""
+        self.start_crawl_btn.config(state=tk.NORMAL)
+        self.batch_crawl_btn.config(state=tk.NORMAL)
+        self.stop_crawl_btn.config(state=tk.DISABLED)
+        
+        # 清理缓存模式状态
+        if hasattr(self, 'cache_mode'):
+            self.cache_mode = False
+        
+        self.log_crawl_message(f"一键爬取失败: {error}", "ERROR")
+        messagebox.showerror("错误", f"一键爬取失败: {error}")
+    
+
+
+    def show_batch_save_dialog(self):
+        """显示批量入库对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("批量入库")
+        dialog.geometry("500x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 缓存文件选择区域
+        file_frame = ttk.LabelFrame(main_frame, text="缓存文件选择", padding="10")
+        file_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 缓存文件列表
+        cache_dir = "cache"
+        cache_files = []
+        if os.path.exists(cache_dir):
+            cache_files = [f for f in os.listdir(cache_dir) if f.endswith('.json')]
+        
+        if not cache_files:
+            ttk.Label(file_frame, text="未找到缓存文件", foreground="red").pack()
+            return
+        
+        # 文件列表框
+        list_frame = ttk.Frame(file_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建Treeview显示文件信息
+        columns = ('文件名', '大小', '修改时间')
+        file_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=8)
+        
+        for col in columns:
+            file_tree.heading(col, text=col)
+            file_tree.column(col, width=150)
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
+        file_tree.configure(yscrollcommand=scrollbar.set)
+        
+        file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 填充文件信息
+        for filename in cache_files:
+            filepath = os.path.join(cache_dir, filename)
+            try:
+                stat = os.stat(filepath)
+                size = f"{stat.st_size / 1024:.1f} KB"
+                mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                file_tree.insert('', tk.END, values=(filename, size, mtime))
+            except:
+                file_tree.insert('', tk.END, values=(filename, "未知", "未知"))
+        
+        # 选择全部复选框
+        select_all_var = tk.BooleanVar(value=True)
+        select_all_check = ttk.Checkbutton(file_frame, text="选择全部文件", variable=select_all_var)
+        select_all_check.pack(pady=(10, 0))
+        
+        # 按钮区域
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def start_batch_save():
+            """开始批量入库"""
+            selected_files = []
+            
+            if select_all_var.get():
+                selected_files = cache_files
+            else:
+                # 获取选中的文件
+                for item in file_tree.selection():
+                    values = file_tree.item(item, 'values')
+                    if values:
+                        selected_files.append(values[0])
+            
+            if not selected_files:
+                messagebox.showwarning("警告", "请选择要入库的文件")
+                return
+            
+            dialog.destroy()
+            self.start_batch_save_process(selected_files)
+        
+        ttk.Button(button_frame, text="开始入库", command=start_batch_save).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT)
+
+    def start_batch_save_process(self, cache_files):
+        """开始批量入库处理"""
+        self.log_crawl_message(f"[批量入库] 开始处理 {len(cache_files)} 个缓存文件", "INFO")
+        
+        def run_batch_save():
+            total_saved = 0
+            total_skipped = 0
+            
+            for i, filename in enumerate(cache_files, 1):
+                filepath = os.path.join("cache", filename)
+                
+                try:
+                    self.root.after(0, lambda f=filename, idx=i, total=len(cache_files): 
+                        self.log_crawl_message(f"[批量入库] 处理文件 {idx}/{total}: {f}", "INFO"))
+                    
+                    # 使用爬虫的批量入库方法
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    saved_count = loop.run_until_complete(
+                        self.crawler.batch_save_from_cache_file(
+                            filepath,
+                            skip_duplicates=True,
+                            log_callback=lambda msg, level="INFO": self.root.after(0, lambda: self.log_crawl_message(f"[批量入库] {msg}", level))
+                        )
+                    )
+                    skipped_count = 0  # batch_save_from_cache_file 只返回保存数量
+                    
+                    total_saved += saved_count
+                    total_skipped += skipped_count
+                    
+                    self.root.after(0, lambda f=filename, s=saved_count, sk=skipped_count: 
+                        self.log_crawl_message(f"[批量入库] {f} 完成: 保存 {s} 条，跳过 {sk} 条", "SUCCESS"))
+                    
+                except Exception as e:
+                    self.root.after(0, lambda f=filename, err=str(e): 
+                        self.log_crawl_message(f"[批量入库] {f} 失败: {err}", "ERROR"))
+            
+            # 完成后刷新数据库列表
+            if total_saved > 0:
+                self.root.after(0, lambda: self.refresh_db_list())
+            
+            self.root.after(0, lambda: self.log_crawl_message(
+                f"[批量入库] 全部完成！总计保存 {total_saved} 条，跳过 {total_skipped} 条", "SUCCESS"))
+        
+        # 在新线程中执行批量入库
+        batch_thread = threading.Thread(target=run_batch_save)
+        batch_thread.daemon = True
+        batch_thread.start()
 
     def run(self):
         """运行GUI"""
