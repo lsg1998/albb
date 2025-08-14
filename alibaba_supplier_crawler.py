@@ -1,6 +1,5 @@
 import asyncio
 import json
-import pandas as pd
 import sqlite3
 import os
 import time
@@ -22,6 +21,24 @@ class AlibabaSupplierCrawler:
         
         # 读取分类数据
         self.categories = self.load_categories()
+    
+    def log(self, message, level="INFO", log_callback=None):
+        """日志记录方法"""
+        if log_callback:
+            log_callback(message, level)
+        else:
+            # 根据日志级别添加前缀
+            if level == "ERROR":
+                prefix = "❌"
+            elif level == "SUCCESS":
+                prefix = "✅"
+            elif level == "WARNING":
+                prefix = "⚠️"
+            elif level == "DEBUG":
+                prefix = "🔍"
+            else:
+                prefix = "ℹ️"
+            print(f"{prefix} {message}")
         
     def init_database(self):
         """初始化数据库"""
@@ -591,7 +608,7 @@ class AlibabaSupplierCrawler:
                     
                     try:
                         # 使用代理请求
-                        data = await self.fetch_with_proxy(search_url, proxy, session)
+                        data = await self.fetch_with_proxy(search_url, proxy, session, log_callback=log_callback)
                         
                         if data.get('success') and 'model' in data and 'offers' in data['model']:
                             suppliers = self.extract_suppliers_from_api(data['model']['offers'])
@@ -604,6 +621,8 @@ class AlibabaSupplierCrawler:
                                 page_skipped = 0
                                 
                                 for i, supplier in enumerate(suppliers, 1):
+                                    # 为关键词搜索添加关键词信息
+                                    supplier['keyword'] = keyword
                                     result = await self.save_single_supplier(supplier, skip_duplicates)
                                     if result:
                                         page_saved += 1
@@ -653,7 +672,7 @@ class AlibabaSupplierCrawler:
                 connector = aiohttp.TCPConnector(limit=10)
                 timeout = aiohttp.ClientTimeout(total=30)
                 async with aiohttp.ClientSession(connector=connector, timeout=timeout) as html_session:
-                    await self.extract_all_licenses(all_suppliers, proxy, html_session)
+                    await self.extract_all_licenses(all_suppliers, proxy, html_session, log_callback)
             
             return all_suppliers
             
@@ -696,7 +715,7 @@ class AlibabaSupplierCrawler:
                 
                 try:
                     # 请求数据
-                    data = await self.fetch_with_proxy(search_url, proxy, session)
+                    data = await self.fetch_with_proxy(search_url, proxy, session, log_callback=log_callback)
                     
                     if data and data.get('code') == 200 and 'data' in data and 'list' in data['data']:
                         suppliers = self.extract_suppliers_from_category_api(data['data']['list'])
@@ -768,7 +787,7 @@ class AlibabaSupplierCrawler:
         """保存单个供应商到对应分类目录"""
         try:
             # 创建保存目录
-            save_path = "result"
+            save_path = "./license_files"
             category_dir = os.path.join(save_path, f"{category_id}_{category_name}")
             os.makedirs(category_dir, exist_ok=True)
             
@@ -804,7 +823,87 @@ class AlibabaSupplierCrawler:
                         except Exception as e:
                             print(f"下载图片失败: {license_item['url']} - {e}")
             
+            # 更新数据库中的save_path字段
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('UPDATE suppliers SET save_path = ? WHERE company_id = ?', (supplier_dir, company_id))
+                conn.commit()
+                conn.close()
+            except Exception as db_e:
+                print(f"更新数据库save_path失败: {db_e}")
+            
             print(f"  - {company_name}: 已保存到分类目录: {supplier_dir}")
+            return supplier_dir
+            
+        except Exception as e:
+            print(f"保存供应商文件失败: {company_name} - {e}")
+            return None
+    
+    def generate_save_path(self, supplier):
+        """生成统一的保存路径"""
+        base_path = "./license_files"
+        
+        # 清理公司名作为文件夹名
+        safe_company_name = supplier['company_name'].replace('/', '_').replace('\\', '_').replace(':', '_')[:50]
+        
+        # 根据关键词或分类生成路径
+        if 'keyword' in supplier and supplier['keyword']:
+            # 关键词搜索：./license_files/{关键词}/{公司名}/
+            safe_keyword = supplier['keyword'].replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            return os.path.join(base_path, safe_keyword, safe_company_name)
+        elif 'category_id' in supplier and supplier['category_id'] and 'category_name' in supplier and supplier['category_name']:
+            # 分类搜索：./license_files/{分类ID}_{分类名}/{公司名}/
+            safe_category_name = supplier['category_name'].replace('/', '_').replace('\\', '_').replace(':', '_')
+            category_folder = f"{supplier['category_id']}_{safe_category_name}"
+            return os.path.join(base_path, category_folder, safe_company_name)
+        else:
+            # 默认路径：./license_files/{公司名}/
+            return os.path.join(base_path, safe_company_name)
+    
+    async def save_single_supplier_to_keyword(self, company_id, company_name, licenses, license_info, keyword):
+        """保存单个供应商到关键词目录"""
+        try:
+            # 创建保存目录
+            save_path = "./license_files"
+            # 清理关键词作为文件夹名
+            safe_keyword = keyword.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            keyword_dir = os.path.join(save_path, safe_keyword)
+            os.makedirs(keyword_dir, exist_ok=True)
+            
+            # 创建供应商目录
+            safe_name = company_name.replace('/', '_').replace('\\', '_').replace(':', '_')[:50]
+            supplier_dir = os.path.join(keyword_dir, safe_name)
+            os.makedirs(supplier_dir, exist_ok=True)
+            
+            # 保存执照信息
+            if license_info:
+                info_file = os.path.join(supplier_dir, "执照信息.txt")
+                with open(info_file, 'w', encoding='utf-8') as f:
+                    f.write(f"供应商: {company_name}\n")
+                    f.write(f"公司ID: {company_id}\n")
+                    f.write(f"关键词: {keyword}\n")
+                    f.write("=" * 50 + "\n")
+                    for field_name, field_value in license_info.items():
+                        f.write(f"{field_name}: {field_value}\n")
+            
+            # 下载执照图片
+            if licenses:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    for i, license_item in enumerate(licenses):
+                        try:
+                            async with session.get(license_item['url']) as response:
+                                if response.status == 200:
+                                    content = await response.read()
+                                    file_ext = license_item['url'].split('.')[-1] if '.' in license_item['url'] else 'jpg'
+                                    img_file = os.path.join(supplier_dir, f"执照图片_{i+1}.{file_ext}")
+                                    with open(img_file, 'wb') as f:
+                                        f.write(content)
+                        except Exception as e:
+                            print(f"下载图片失败: {license_item['url']} - {e}")
+            
+            print(f"  - {company_name}: 已保存到关键词目录: {supplier_dir}")
             return supplier_dir
             
         except Exception as e:
@@ -844,7 +943,7 @@ class AlibabaSupplierCrawler:
         
         # 创建保存目录
         if not save_path:
-            save_path = "result"
+            save_path = "./license_files"
         
         category_dir = os.path.join(save_path, f"{category_id}_{category_name}")
         os.makedirs(category_dir, exist_ok=True)
@@ -976,6 +1075,10 @@ class AlibabaSupplierCrawler:
                     print(f"  ✓ 跳过重复供应商: {supplier['company_name']} (ID: {supplier['company_id']})")
                     return False
             
+            # 生成保存路径
+            save_path = self.generate_save_path(supplier)
+            supplier['save_path'] = save_path
+            
             cursor.execute('''
                 INSERT INTO suppliers (company_id, company_name, action_url, country_code, 
                                    city, gold_years, verified_supplier, is_factory, 
@@ -1005,7 +1108,7 @@ class AlibabaSupplierCrawler:
                 supplier.get('response_time', ''),
                 supplier.get('category_id', ''),
                 supplier.get('category_name', ''),
-                supplier.get('save_path', '')
+                save_path
             ))
             
             conn.commit()
@@ -1055,7 +1158,8 @@ class AlibabaSupplierCrawler:
                                     'name': f"{base_name.split('.')[0]}.{file_ext}",
                                     'type': 'img',
                                     'url': url,
-                                    'fileId': base_name
+                                    'fileId': base_name,
+                                    'file_size': file_size
                                 }
                                 print(f"保留执照图片: {url} (大小: {file_size} bytes)")
                                 return license_item
@@ -1063,12 +1167,13 @@ class AlibabaSupplierCrawler:
                                 print(f"忽略小图片: {url} (大小: {file_size} bytes, 小于20KB)")
                                 return None
                         else:
-                            # 如果没有content-length头，保留图片
+                            # 如果没有content-length头，保留图片，设置默认大小为0
                             license_item = {
                                 'name': f"{base_name.split('.')[0]}.{file_ext}",
                                 'type': 'img',
                                 'url': url,
-                                'fileId': base_name
+                                'fileId': base_name,
+                                'file_size': 0
                             }
                             print(f"保留执照图片: {url} (无法获取大小)")
                             return license_item
@@ -1133,8 +1238,15 @@ class AlibabaSupplierCrawler:
                         elif result is not None:
                             all_licenses.append(result)
                 
-                print(f"找到 {len(all_licenses)} 个有效执照图片（大于20KB）")
-                return all_licenses
+                # 只保留最大的一张图片
+                if all_licenses:
+                    # 按文件大小排序，选择最大的一张
+                    largest_license = max(all_licenses, key=lambda x: x.get('file_size', 0))
+                    print(f"找到 {len(all_licenses)} 个有效执照图片，保留最大的一张: {largest_license['url']} (大小: {largest_license.get('file_size', 0)} bytes)")
+                    return [largest_license]
+                else:
+                    print("未找到有效的执照图片")
+                    return []
             else:
                 print("未找到执照图片")
                 return []
@@ -1180,7 +1292,7 @@ class AlibabaSupplierCrawler:
             print(f"提取执照信息失败: {e}")
             return None
     
-    async def fetch_supplier_page(self, action_url, proxy=None, session=None, check_ip=False):
+    async def fetch_supplier_page(self, action_url, proxy=None, session=None, check_ip=False, log_callback=None):
         """获取供应商页面HTML"""
         try:
             # 确保URL包含subpage参数
@@ -1192,33 +1304,33 @@ class AlibabaSupplierCrawler:
             else:
                 actual_url = action_url
             
-            print(f"请求供应商页面: {actual_url}")
+            self.log(f"请求供应商页面: {actual_url}", "INFO", log_callback)
             
             # 使用HTML请求头获取页面（可控制IP检查）
-            html_content = await self.fetch_with_proxy(actual_url, proxy, session, is_html=True, check_ip=check_ip)
+            html_content = await self.fetch_with_proxy(actual_url, proxy, session, is_html=True, check_ip=check_ip, log_callback=log_callback)
             
             if html_content:
-                print(f"成功获取页面，长度: {len(html_content)} 字符")
+                self.log(f"成功获取页面，长度: {len(html_content)} 字符", "SUCCESS", log_callback)
                 return html_content
             else:
-                print("获取页面失败")
+                self.log("获取页面失败", "ERROR", log_callback)
                 return None
                 
         except Exception as e:
-            print(f"获取供应商页面失败: {e}")
+            self.log(f"获取供应商页面失败: {e}", "ERROR", log_callback)
             return None
     
-    async def extract_all_licenses(self, suppliers, proxy=None, session=None):
+    async def extract_all_licenses(self, suppliers, proxy=None, session=None, log_callback=None):
         """提取所有供应商的执照图片"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             for i, supplier in enumerate(suppliers, 1):
-                print(f"处理第 {i}/{len(suppliers)} 个供应商: {supplier['company_name']}")
+                self.log(f"处理第 {i}/{len(suppliers)} 个供应商: {supplier['company_name']}", "INFO", log_callback)
                 
                 # 获取供应商页面HTML（启用IP检测）
-                html_content = await self.fetch_supplier_page(supplier['action_url'], proxy, session, check_ip=True)
+                html_content = await self.fetch_supplier_page(supplier['action_url'], proxy, session, check_ip=True, log_callback=log_callback)
                 
                 if html_content:
                     # 提取执照图片
@@ -1324,16 +1436,16 @@ class AlibabaSupplierCrawler:
             print(f"从数据库提取执照图片时出错: {e}")
             return 0
     
-    async def process_single_supplier(self, company_id, company_name, action_url, proxy, session):
+    async def process_single_supplier(self, company_id, company_name, action_url, proxy, session, log_callback=None):
         """处理单个供应商 - 用于并发处理"""
         try:
-            print(f"开始处理: {company_name}")
+            self.log(f"开始处理: {company_name}", "INFO", log_callback)
             
             # 获取供应商页面HTML（启用IP检测）
-            html_content = await self.fetch_supplier_page(action_url, proxy, session, check_ip=True)
+            html_content = await self.fetch_supplier_page(action_url, proxy, session, check_ip=True, log_callback=log_callback)
             
             if html_content:
-                print(f"  - {company_name}: 成功获取页面")
+                self.log(f"  - {company_name}: 成功获取页面", "SUCCESS", log_callback)
                 
                 # 提取执照图片
                 licenses = await self.extract_licenses_from_html(html_content)
@@ -1413,19 +1525,25 @@ class AlibabaSupplierCrawler:
                 return False
                 
         except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
             print(f"  - {company_name}: 处理出错: {e}")
+            print(f"  - 详细错误信息: {error_detail}")
+            if log_callback:
+                self.log(f"  - {company_name}: 处理出错: {e}", "ERROR", log_callback)
+                self.log(f"  - 详细错误: {error_detail}", "DEBUG", log_callback)
             return False
     
-    async def extract_single_license(self, company_id, company_name, action_url, proxy=None):
+    async def extract_single_license(self, company_id, company_name, action_url, proxy=None, log_callback=None):
         """提取单个供应商的执照"""
         try:
-            print(f"开始提取: {company_name}")
+            self.log(f"开始提取: {company_name}", "INFO", log_callback)
             
             # 获取供应商页面HTML
-            html_content = await self.fetch_supplier_page(action_url, proxy)
+            html_content = await self.fetch_supplier_page(action_url, proxy, log_callback=log_callback)
             
             if html_content:
-                print(f"  - {company_name}: 成功获取页面")
+                self.log(f"  - {company_name}: 成功获取页面", "SUCCESS", log_callback)
                 
                 # 提取执照图片
                 licenses = await self.extract_licenses_from_html(html_content)
@@ -1495,16 +1613,16 @@ class AlibabaSupplierCrawler:
             print(f"处理供应商时出错: {e}")
             return False
 
-    async def recognize_license_from_url(self, action_url, proxy=None):
+    async def recognize_license_from_url(self, action_url, proxy=None, log_callback=None):
         """从URL识别执照信息"""
         try:
-            print(f"开始识别执照: {action_url}")
+            self.log(f"开始识别执照: {action_url}", "INFO", log_callback)
             
             # 获取供应商页面HTML
-            html_content = await self.fetch_supplier_page(action_url, proxy)
+            html_content = await self.fetch_supplier_page(action_url, proxy, log_callback=log_callback)
             
             if html_content:
-                print(f"成功获取页面")
+                self.log(f"成功获取页面", "SUCCESS", log_callback)
                 
                 # 提取执照图片
                 licenses = await self.extract_licenses_from_html(html_content)

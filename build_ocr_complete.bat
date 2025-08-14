@@ -35,13 +35,11 @@ if %errorlevel% equ 0 (
         echo 📁 可执行文件位置: dist\营业执照OCR识别工具_完整版.exe
         echo 📋 使用说明:
         echo 1. 双击运行 营业执照OCR识别工具_完整版.exe
-        echo 2. 选择OCR服务（演示模式、手动输入、阿里云OCR）
+        echo 2. 配置阿里云OCR服务
         echo 3. 选择图片文件进行识别
         echo 4. 查看识别结果
         echo.
         echo 🔧 功能说明:
-        echo - 演示模式：显示示例识别结果
-        echo - 手动输入：手动输入营业执照信息
         echo - 阿里云OCR：使用阿里云OCR服务进行真实识别
     ) else (
         echo ❌ 可执行文件生成失败
@@ -51,4 +49,4 @@ if %errorlevel% equ 0 (
 )
 
 echo.
-pause 
+pause

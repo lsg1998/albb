@@ -227,7 +227,7 @@ class AlibabaCrawlerGUI:
         
         # 线程数设置
         ttk.Label(settings_frame, text="并发线程数:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.thread_count_var = tk.StringVar(value="5")
+        self.thread_count_var = tk.StringVar(value="1")
         self.thread_count_entry = ttk.Entry(settings_frame, textvariable=self.thread_count_var, width=10)
         self.thread_count_entry.grid(row=0, column=1, sticky=tk.W, pady=2, padx=(10, 0))
         
@@ -238,7 +238,7 @@ class AlibabaCrawlerGUI:
         self.batch_delay_entry.grid(row=0, column=3, sticky=tk.W, pady=2, padx=(10, 0))
         
         # IP检测开关
-        self.enable_ip_check_var = tk.BooleanVar(value=True)
+        self.enable_ip_check_var = tk.BooleanVar(value=False)
         self.enable_ip_check_checkbox = ttk.Checkbutton(settings_frame, text="启用IP检测", variable=self.enable_ip_check_var)
         self.enable_ip_check_checkbox.grid(row=0, column=4, sticky=tk.W, pady=2, padx=(20, 0))
         
@@ -428,6 +428,9 @@ class AlibabaCrawlerGUI:
         
         # 添加右键菜单
         self.db_list_context_menu = tk.Menu(self.root, tearoff=0)
+        self.db_list_context_menu.add_command(label="编辑", command=self.edit_selected_supplier)
+        self.db_list_context_menu.add_command(label="删除", command=self.delete_selected_supplier)
+        self.db_list_context_menu.add_separator()
         self.db_list_context_menu.add_command(label="识别执照", command=self.recognize_selected_db_list)
         self.db_list_context_menu.add_command(label="浏览文件", command=self.browse_selected_db_list)
         self.db_list_context_menu.add_command(label="导出选中", command=self.export_selected_suppliers)
@@ -954,6 +957,10 @@ class AlibabaCrawlerGUI:
                 # 使用数据库中存储的保存路径
                 folder_path = result[0]
                 
+                # 如果是相对路径，转换为绝对路径
+                if not os.path.isabs(folder_path):
+                    folder_path = os.path.abspath(folder_path)
+                
                 if os.path.exists(folder_path):
                     import subprocess
                     import platform
@@ -1092,7 +1099,7 @@ class AlibabaCrawlerGUI:
                         return
                     
                     # 获取保存路径
-                    save_path = self.save_path_var.get().strip() if hasattr(self, 'save_path_var') else "result"
+                    save_path = self.save_path_var.get().strip() if hasattr(self, 'save_path_var') else "./license_files"
                     
                     self.root.after(0, lambda: self.log_crawl_message(f"开始获取供应商，分类ID: {category_id}，页面范围: {start_page}-{end_page}", "INFO"))
                     
@@ -1345,14 +1352,17 @@ class AlibabaCrawlerGUI:
                                             # 记录成功提取的供应商ID
                                             company_id = batch[idx][0]  # batch中的第一个元素是company_id
                                             successfully_extracted_ids.append(company_id)
-                                            self.root.after(0, lambda: self.log_extract_message(f"成功处理供应商 {processed_count}/{len(suppliers)}", "SUCCESS"))
+                                            company_name = batch[idx][1]  # 获取公司名称
+                                            self.root.after(0, lambda cn=company_name: self.log_extract_message(f"✓ 成功处理: {cn} ({processed_count}/{len(suppliers)})", "SUCCESS"))
                                         else:
                                             failed_count += 1
-                                            self.root.after(0, lambda: self.log_extract_message(f"处理供应商失败 {processed_count}/{len(suppliers)}", "ERROR"))
+                                            company_name = batch[idx][1]  # 获取公司名称
+                                            self.root.after(0, lambda cn=company_name: self.log_extract_message(f"✗ 处理失败: {cn} ({processed_count}/{len(suppliers)}) - 可能原因: 页面无法访问或未找到执照信息", "ERROR"))
                                     except Exception as e:
                                         failed_count += 1
+                                        company_name = batch[idx][1] if idx < len(batch) else "未知供应商"
                                         error_msg = str(e)
-                                        self.root.after(0, lambda m=error_msg: self.log_extract_message(f"处理供应商时出错: {m}", "ERROR"))
+                                        self.root.after(0, lambda cn=company_name, m=error_msg: self.log_extract_message(f"✗ 处理异常: {cn} - 错误: {m}", "ERROR"))
                                 
                                 # 更新进度
                                 current_processed = min(i + batch_size, len(suppliers))
@@ -1401,13 +1411,17 @@ class AlibabaCrawlerGUI:
     async def process_single_supplier_no_ip_check(self, company_id, company_name, action_url, proxy, session):
         """处理单个供应商（禁用IP检测）"""
         try:
-            print(f"开始处理: {company_name}")
+            self.root.after(0, lambda: self.log_extract_message(f"开始处理: {company_name}", "INFO"))
+            
+            # 创建日志回调函数
+            def log_callback(message, level="INFO"):
+                self.root.after(0, lambda: self.log_extract_message(message, level))
             
             # 获取供应商页面HTML（禁用IP检测）
-            html_content = await self.crawler.fetch_supplier_page(action_url, proxy, session, check_ip=False)
+            html_content = await self.crawler.fetch_supplier_page(action_url, proxy, session, check_ip=False, log_callback=log_callback)
             
             if html_content:
-                print(f"  - {company_name}: 成功获取页面")
+                self.root.after(0, lambda: self.log_extract_message(f"  - {company_name}: 成功获取页面", "SUCCESS"))
                 
                 # 提取执照图片
                 licenses = await self.crawler.extract_licenses_from_html(html_content)
@@ -1527,7 +1541,7 @@ class AlibabaCrawlerGUI:
                         
                         # 保存到文件
                         if licenses or license_info:
-                            self.save_license_to_file(company_name, licenses, license_info, save_path)
+                            self.save_license_to_file(company_name, licenses, license_info, save_path, company_id)
                             return True
                     
                     return False
@@ -1583,7 +1597,7 @@ class AlibabaCrawlerGUI:
                     
                     # 保存到文件
                     if licenses or license_info:
-                        self.save_license_to_file(company_name, licenses, license_info, save_path)
+                        self.save_license_to_file(company_name, licenses, license_info, save_path, company_id)
                         self.log_message(f"✓ 已保存 {company_name} 的执照信息到本地文件")
                     else:
                         self.log_message(f"✗ {company_name} 没有找到执照信息")
@@ -1646,7 +1660,7 @@ class AlibabaCrawlerGUI:
                     
                     # 保存到文件
                     if licenses or license_info:
-                        self.save_license_to_file(company_name, licenses, license_info, save_path)
+                        self.save_license_to_file(company_name, licenses, license_info, save_path, company_id)
                         saved_count += 1
                         self.log_extract_message(f"✓ 已保存 {company_name} 的执照信息到本地文件", "SUCCESS")
                     else:
@@ -1661,14 +1675,36 @@ class AlibabaCrawlerGUI:
         except Exception as e:
             self.log_extract_message(f"保存本次提取的执照信息到本地文件时出错: {e}", "ERROR")
 
-    def save_license_to_file(self, company_name, licenses, license_info, save_path):
+    def save_license_to_file(self, company_name, licenses, license_info, save_path, company_id=None):
         """保存执照信息到文件"""
-        # 清理文件名
-        safe_name = company_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
-        
-        # 创建文件夹
-        folder_path = os.path.join(save_path, safe_name)
-        os.makedirs(folder_path, exist_ok=True)
+        # 如果提供了company_id，尝试从数据库获取保存路径
+        if company_id:
+            try:
+                conn = sqlite3.connect(self.crawler.db_path)
+                cursor = conn.cursor()
+                cursor.execute('SELECT save_path FROM suppliers WHERE company_id = ?', (company_id,))
+                result = cursor.fetchone()
+                conn.close()
+                
+                if result and result[0]:
+                    # 使用数据库中的路径
+                    folder_path = result[0]
+                    os.makedirs(folder_path, exist_ok=True)
+                else:
+                    # 如果数据库中没有路径，使用默认路径
+                    safe_name = company_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+                    folder_path = os.path.join(save_path, safe_name)
+                    os.makedirs(folder_path, exist_ok=True)
+            except Exception as e:
+                # 出错时使用默认路径
+                safe_name = company_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+                folder_path = os.path.join(save_path, safe_name)
+                os.makedirs(folder_path, exist_ok=True)
+        else:
+            # 没有company_id时使用默认路径
+            safe_name = company_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            folder_path = os.path.join(save_path, safe_name)
+            os.makedirs(folder_path, exist_ok=True)
         
         # 保存执照信息
         if license_info:
@@ -1709,16 +1745,17 @@ class AlibabaCrawlerGUI:
                         # 下载图片
                         response = requests.get(license_url, timeout=10)
                         if response.status_code == 200:
-                            # 保存图片
-                            img_file = os.path.join(folder_path, f"执照图片_{i}.png")
+                            # 获取原始文件扩展名
+                            import urllib.parse
+                            parsed_url = urllib.parse.urlparse(license_url)
+                            file_extension = os.path.splitext(parsed_url.path)[1]
+                            if not file_extension:
+                                file_extension = '.jpg'  # 默认为jpg
+                            
+                            # 保存图片，保持原始格式
+                            img_file = os.path.join(folder_path, f"执照图片_{i}{file_extension}")
                             with open(img_file, 'wb') as f:
                                 f.write(response.content)
-                            
-                            # 保存图片信息
-                            info_file = os.path.join(folder_path, f"执照图片_{i}_信息.txt")
-                            with open(info_file, 'w', encoding='utf-8') as f:
-                                f.write(f"图片URL: {license_url}\n")
-                                f.write(f"图片序号: {i}\n")
                                 
                     except Exception as e:
                         self.log_message(f"保存图片 {i} 失败: {e}")
@@ -1738,7 +1775,7 @@ class AlibabaCrawlerGUI:
         self.stop_extract_btn.config(state=tk.DISABLED)
         self.extract_progress.configure(value=100)
         self.extract_status_label.config(text="提取完成")
-        messagebox.showinfo("完成", "执照提取完成")
+        messagebox.showinfo("完成", "执照提取开始")
     
     def extract_error(self, error):
         """提取错误"""
@@ -1895,7 +1932,7 @@ class AlibabaCrawlerGUI:
                         # 使用默认保存路径，避免弹出对话框影响GUI
                         save_path = "./license_files"
                         os.makedirs(save_path, exist_ok=True)
-                        self.save_license_to_file(company_name, licenses, license_info, save_path)
+                        self.save_license_to_file(company_name, licenses, license_info, save_path, company_id)
                         self.log_message(f"✓ 已保存 {company_name} 的执照信息到 {save_path}")
                     else:
                         self.log_message(f"✗ {company_name} 没有找到执照信息")
@@ -2072,64 +2109,139 @@ class AlibabaCrawlerGUI:
         company_name = item_values[1]
         action_url = item_values[2]
 
-        self.log_message(f"尝试识别供应商: {company_name} (Action URL: {action_url})")
-
-        # 使用新隧道代理
-        fixed_proxy = {
-            'host': 'y900.kdltps.com',
-            'port': 15818,
-            'username': 't15395136610470',
-            'password': 'kyhxo4pj'
-        }
+        self.log_message(f"开始识别供应商执照: {company_name}")
 
         # 在新线程中运行识别
         def run_recognize():
             try:
-                # 创建爬虫实例
-                crawler = AlibabaSupplierCrawler()
+                # 首先检查本地是否已有执照图片文件
+                save_path = "./license_files"
+                safe_name = company_name.replace('/', '_').replace('\\', '_').replace(':', '_')[:50]
+                supplier_dir = os.path.join(save_path, "0_所有类目", safe_name)
                 
-                # 运行异步识别
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # 查找本地执照图片文件
+                local_images = []
+                if os.path.exists(supplier_dir):
+                    for file in os.listdir(supplier_dir):
+                        if file.startswith("执照图片_") and file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                            local_images.append(os.path.join(supplier_dir, file))
                 
-                result = loop.run_until_complete(
-                    crawler.recognize_license_from_url(action_url, fixed_proxy)
-                )
-                
-                if result:
-                    # 从数据库获取提取的执照信息
-                    conn = sqlite3.connect(crawler.db_path)
-                    cursor = conn.cursor()
+                if local_images:
+                    # 如果本地已有执照图片，直接使用OCR处理
+                    self.log_message(f"✓ 找到本地执照图片 {len(local_images)} 张，开始OCR识别")
                     
-                    # 获取执照图片
-                    cursor.execute('SELECT license_url FROM licenses WHERE supplier_id = ?', (result['company_id'],))
-                    licenses = cursor.fetchall()
+                    # 导入OCR处理器
+                    import sys
+                    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+                    from ocr_license_complete import LicenseOCRProcessor
                     
-                    # 获取执照信息
-                    cursor.execute('''
-                        SELECT registration_no, company_name, date_of_issue, date_of_expiry,
-                               registered_capital, country_territory, registered_address,
-                               year_established, legal_form, legal_representative
-                        FROM license_info WHERE supplier_id = ?
-                    ''', (result['company_id'],))
-                    license_info = cursor.fetchone()
-                    conn.close()
+                    # 创建OCR处理器
+                    ocr_processor = LicenseOCRProcessor()
                     
-                    # 保存到文件
-                    if licenses or license_info:
-                        # 使用默认保存路径，避免弹出对话框影响GUI
-                        save_path = "./license_files"
-                        os.makedirs(save_path, exist_ok=True)
-                        self.save_license_to_file(company_name, licenses, license_info, save_path)
-                        self.log_message(f"✓ 已保存 {company_name} 的执照信息到 {save_path}")
+                    # 处理每张图片
+                    success_count = 0
+                    for image_path in local_images:
+                        self.log_message(f"正在OCR识别: {os.path.basename(image_path)}")
+                        if ocr_processor.process_single_image(image_path):
+                            success_count += 1
+                            self.log_message(f"✓ OCR识别成功: {os.path.basename(image_path)}")
+                        else:
+                            self.log_message(f"✗ OCR识别失败: {os.path.basename(image_path)}")
+                    
+                    if success_count > 0:
+                        self.log_message(f"✓ 执照OCR识别完成，成功处理 {success_count}/{len(local_images)} 张图片")
                     else:
-                        self.log_message(f"✗ {company_name} 没有找到执照信息")
+                        self.log_message(f"✗ 所有执照图片OCR识别都失败")
+                        
                 else:
-                    self.log_message(f"✗ 识别失败或未找到执照信息")
+                    # 如果本地没有执照图片，从网络获取
+                    self.log_message(f"本地未找到执照图片，尝试从网络获取: {action_url}")
+                    
+                    # 使用新隧道代理
+                    fixed_proxy = {
+                        'host': 'y900.kdltps.com',
+                        'port': 15818,
+                        'username': 't15395136610470',
+                        'password': 'kyhxo4pj'
+                    }
+                    
+                    # 创建爬虫实例
+                    crawler = AlibabaSupplierCrawler()
+                    
+                    # 运行异步识别
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    result = loop.run_until_complete(
+                        crawler.recognize_license_from_url(action_url, fixed_proxy)
+                    )
+                    
+                    if result:
+                        # 从数据库获取提取的执照信息
+                        conn = sqlite3.connect(crawler.db_path)
+                        cursor = conn.cursor()
+                        
+                        # 获取执照图片
+                        cursor.execute('SELECT license_url FROM licenses WHERE supplier_id = ?', (result['company_id'],))
+                        licenses = cursor.fetchall()
+                        
+                        # 获取执照信息
+                        cursor.execute('''
+                            SELECT registration_no, company_name, date_of_issue, date_of_expiry,
+                                   registered_capital, country_territory, registered_address,
+                                   year_established, legal_form, legal_representative
+                            FROM license_info WHERE supplier_id = ?
+                        ''', (result['company_id'],))
+                        license_info = cursor.fetchone()
+                        conn.close()
+                        
+                        # 保存到文件
+                        if licenses or license_info:
+                            os.makedirs(save_path, exist_ok=True)
+                            self.save_license_to_file(company_name, licenses, license_info, save_path)
+                            self.log_message(f"✓ 已保存 {company_name} 的执照信息到 {save_path}")
+                            
+                            # 对新下载的图片进行OCR识别
+                            self.log_message(f"开始对新下载的执照图片进行OCR识别")
+                            # 重新查找本地图片文件
+                            new_images = []
+                            if os.path.exists(supplier_dir):
+                                for file in os.listdir(supplier_dir):
+                                    if file.startswith("执照图片_") and file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                                        new_images.append(os.path.join(supplier_dir, file))
+                            
+                            if new_images:
+                                # 导入OCR处理器
+                                import sys
+                                sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+                                from ocr_license_complete import LicenseOCRProcessor
+                                
+                                # 创建OCR处理器
+                                ocr_processor = LicenseOCRProcessor()
+                                
+                                # 处理每张图片
+                                success_count = 0
+                                for image_path in new_images:
+                                    self.log_message(f"正在OCR识别: {os.path.basename(image_path)}")
+                                    if ocr_processor.process_single_image(image_path):
+                                        success_count += 1
+                                        self.log_message(f"✓ OCR识别成功: {os.path.basename(image_path)}")
+                                    else:
+                                        self.log_message(f"✗ OCR识别失败: {os.path.basename(image_path)}")
+                                
+                                if success_count > 0:
+                                    self.log_message(f"✓ 执照OCR识别完成，成功处理 {success_count}/{len(new_images)} 张图片")
+                                else:
+                                    self.log_message(f"✗ 所有执照图片OCR识别都失败")
+                        else:
+                            self.log_message(f"✗ {company_name} 没有找到执照信息")
+                    else:
+                        self.log_message(f"✗ 从网络获取执照信息失败")
                     
             except Exception as e:
                 self.log_message(f"识别失败: {e}")
-                messagebox.showerror("错误", f"识别失败: {e}")
+                import traceback
+                self.log_message(f"详细错误: {traceback.format_exc()}")
         
         threading.Thread(target=run_recognize, daemon=True).start()
 
@@ -2154,6 +2266,10 @@ class AlibabaCrawlerGUI:
         if result and result[0]:
             # 使用数据库中存储的保存路径
             folder_path = result[0]
+            
+            # 如果是相对路径，转换为绝对路径
+            if not os.path.isabs(folder_path):
+                folder_path = os.path.abspath(folder_path)
             
             if os.path.exists(folder_path):
                 import subprocess
@@ -2611,6 +2727,194 @@ class AlibabaCrawlerGUI:
             self.log_crawl_message("已清除过滤", "INFO")
         else:
             self.log_crawl_message("没有应用过滤", "INFO")
+
+    def edit_selected_supplier(self):
+        """编辑选中的供应商"""
+        selection = self.db_list_tree.selection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择一个供应商")
+            return
+        
+        # 获取选中项的数据
+        item = self.db_list_tree.item(selection[0])
+        values = item['values']
+        
+        if len(values) < 3:
+            messagebox.showerror("错误", "无法获取供应商信息")
+            return
+        
+        company_name = values[1]  # 店铺名称
+        action_url = values[2]    # Action URL
+        
+        # 从数据库获取完整信息
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 获取供应商基本信息
+            cursor.execute('SELECT company_id, company_name, action_url FROM suppliers WHERE company_name = ?', (company_name,))
+            supplier_info = cursor.fetchone()
+            
+            if not supplier_info:
+                messagebox.showerror("错误", "未找到供应商信息")
+                conn.close()
+                return
+            
+            company_id = supplier_info[0]
+            
+            # 获取执照图片URL
+            cursor.execute('SELECT license_url FROM licenses WHERE supplier_id = ?', (company_id,))
+            license_urls = cursor.fetchall()
+            
+            conn.close()
+            
+            # 创建编辑弹框
+            self.show_edit_dialog(company_id, company_name, action_url, license_urls)
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"获取供应商信息失败: {e}")
+    
+    def show_edit_dialog(self, company_id, company_name, action_url, license_urls):
+        """显示编辑对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("编辑供应商信息")
+        dialog.geometry("600x500")
+        dialog.resizable(True, True)
+        
+        # 设置对话框居中
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 主框架
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 供应商基本信息
+        info_frame = ttk.LabelFrame(main_frame, text="基本信息", padding="10")
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 店铺名称
+        ttk.Label(info_frame, text="店铺名称:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        name_entry = ttk.Entry(info_frame, width=50)
+        name_entry.insert(0, company_name)
+        name_entry.grid(row=0, column=1, sticky=tk.W+tk.E, pady=5, padx=(10, 0))
+        
+        # Action URL
+        ttk.Label(info_frame, text="Action URL:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        url_entry = ttk.Entry(info_frame, width=50)
+        url_entry.insert(0, action_url)
+        url_entry.grid(row=1, column=1, sticky=tk.W+tk.E, pady=5, padx=(10, 0))
+        
+        info_frame.columnconfigure(1, weight=1)
+        
+        # 执照图片URL
+        license_frame = ttk.LabelFrame(main_frame, text="执照图片URL", padding="10")
+        license_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 创建文本框显示执照URL
+        license_text = tk.Text(license_frame, height=10, wrap=tk.WORD)
+        license_scrollbar = ttk.Scrollbar(license_frame, orient=tk.VERTICAL, command=license_text.yview)
+        license_text.configure(yscrollcommand=license_scrollbar.set)
+        
+        # 显示执照URL
+        if license_urls:
+            for i, url_tuple in enumerate(license_urls, 1):
+                license_text.insert(tk.END, f"执照图片 {i}: {url_tuple[0]}\n\n")
+        else:
+            license_text.insert(tk.END, "暂无执照图片")
+        
+        license_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        license_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 按钮框架
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def save_changes():
+            """保存修改"""
+            new_name = name_entry.get().strip()
+            new_url = url_entry.get().strip()
+            
+            if not new_name or not new_url:
+                messagebox.showwarning("提示", "店铺名称和Action URL不能为空")
+                return
+            
+            try:
+                conn = sqlite3.connect(self.crawler.db_path)
+                cursor = conn.cursor()
+                
+                # 更新供应商信息
+                cursor.execute('UPDATE suppliers SET company_name = ?, action_url = ? WHERE company_id = ?', 
+                             (new_name, new_url, company_id))
+                
+                conn.commit()
+                conn.close()
+                
+                messagebox.showinfo("成功", "供应商信息已更新")
+                dialog.destroy()
+                self.refresh_db_list_page()  # 刷新列表
+                
+            except Exception as e:
+                messagebox.showerror("错误", f"保存失败: {e}")
+        
+        def close_dialog():
+            """关闭对话框"""
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text="保存", command=save_changes).pack(side=tk.RIGHT, padx=(10, 0))
+        ttk.Button(button_frame, text="取消", command=close_dialog).pack(side=tk.RIGHT)
+    
+    def delete_selected_supplier(self):
+        """删除选中的供应商"""
+        selection = self.db_list_tree.selection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择一个供应商")
+            return
+        
+        # 获取选中项的数据
+        item = self.db_list_tree.item(selection[0])
+        values = item['values']
+        
+        if len(values) < 2:
+            messagebox.showerror("错误", "无法获取供应商信息")
+            return
+        
+        company_name = values[1]  # 店铺名称
+        
+        # 确认删除
+        result = messagebox.askyesno("确认删除", f"确定要删除供应商 '{company_name}' 吗？\n\n此操作将删除该供应商的所有相关数据，包括执照信息和图片记录。")
+        
+        if not result:
+            return
+        
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 获取供应商ID
+            cursor.execute('SELECT company_id FROM suppliers WHERE company_name = ?', (company_name,))
+            supplier_info = cursor.fetchone()
+            
+            if not supplier_info:
+                messagebox.showerror("错误", "未找到供应商信息")
+                conn.close()
+                return
+            
+            company_id = supplier_info[0]
+            
+            # 删除相关数据
+            cursor.execute('DELETE FROM licenses WHERE supplier_id = ?', (company_id,))
+            cursor.execute('DELETE FROM license_info WHERE supplier_id = ?', (company_id,))
+            cursor.execute('DELETE FROM suppliers WHERE company_id = ?', (company_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            messagebox.showinfo("成功", f"供应商 '{company_name}' 已删除")
+            self.refresh_db_list_page()  # 刷新列表
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"删除失败: {e}")
 
     def run(self):
         """运行GUI"""
