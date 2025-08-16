@@ -30,6 +30,26 @@ class AlibabaCrawlerGUI:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # 数据库配置区域
+        db_config_frame = ttk.LabelFrame(main_frame, text="数据库配置", padding="10")
+        db_config_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 数据库路径选择
+        path_frame = ttk.Frame(db_config_frame)
+        path_frame.pack(fill=tk.X)
+        
+        ttk.Label(path_frame, text="数据库路径:").pack(side=tk.LEFT, padx=(0, 5))
+        self.db_path_var = tk.StringVar(value=self.crawler.db_path)
+        self.db_path_entry = ttk.Entry(path_frame, textvariable=self.db_path_var, width=60)
+        self.db_path_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
+        ttk.Button(path_frame, text="浏览", command=self.browse_db_path).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(path_frame, text="应用", command=self.apply_db_path).pack(side=tk.LEFT)
+        
+        # 数据库状态显示
+        self.db_status_label = ttk.Label(db_config_frame, text="")
+        self.db_status_label.pack(anchor=tk.W, pady=(5, 0))
+        self.update_db_status()
+        
         # 创建选项卡
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill=tk.BOTH, expand=True)
@@ -61,6 +81,84 @@ class AlibabaCrawlerGUI:
         
         # 设置代理配置页面
         self.setup_proxy_page(proxy_frame)
+    
+    def browse_db_path(self):
+        """浏览数据库文件路径"""
+        file_path = filedialog.askopenfilename(
+            title="选择数据库文件",
+            filetypes=[("SQLite数据库", "*.db"), ("所有文件", "*.*")],
+            initialdir=os.path.dirname(self.crawler.db_path) if os.path.dirname(self.crawler.db_path) else "."
+        )
+        if file_path:
+            self.db_path_var.set(file_path)
+    
+    def apply_db_path(self):
+        """应用新的数据库路径"""
+        new_path = self.db_path_var.get().strip()
+        if not new_path:
+            messagebox.showwarning("警告", "请输入数据库路径")
+            return
+        
+        # 检查文件是否存在，如果不存在询问是否创建
+        if not os.path.exists(new_path):
+            result = messagebox.askyesno(
+                "数据库不存在", 
+                f"数据库文件不存在：{new_path}\n\n是否创建新的数据库文件？"
+            )
+            if not result:
+                return
+        
+        try:
+            # 更新crawler的数据库路径
+            old_path = self.crawler.db_path
+            
+            # 使用新的方法更改数据库路径并初始化
+            self.crawler.change_database_path(new_path)
+            
+            # 更新状态显示
+            self.update_db_status()
+            
+            # 刷新数据库列表页面
+            self.refresh_db_list_page()
+            
+            messagebox.showinfo("成功", f"数据库路径已更新为：{new_path}")
+            
+        except Exception as e:
+            # 如果出错，恢复原路径
+            self.crawler.db_path = old_path
+            self.db_path_var.set(old_path)
+            messagebox.showerror("错误", f"切换数据库失败：{str(e)}")
+    
+    def update_db_status(self):
+        """更新数据库状态显示"""
+        db_path = self.crawler.db_path
+        if os.path.exists(db_path):
+            try:
+                # 获取数据库统计信息
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # 检查suppliers表是否存在
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='suppliers'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT COUNT(*) FROM suppliers")
+                    total_count = cursor.fetchone()[0]
+                    
+                    cursor.execute("SELECT COUNT(*) FROM suppliers WHERE license_extracted = 1")
+                    extracted_count = cursor.fetchone()[0]
+                    
+                    status_text = f"状态: 已连接 | 总供应商: {total_count} | 已提取执照: {extracted_count} | 文件: {os.path.basename(db_path)}"
+                else:
+                    status_text = f"状态: 已连接 (空数据库) | 文件: {os.path.basename(db_path)}"
+                
+                conn.close()
+                
+            except Exception as e:
+                status_text = f"状态: 连接错误 - {str(e)} | 文件: {os.path.basename(db_path)}"
+        else:
+            status_text = f"状态: 文件不存在 | 文件: {os.path.basename(db_path)}"
+        
+        self.db_status_label.config(text=status_text)
     
     def setup_crawl_page(self, parent):
         """设置爬取页面"""

@@ -315,6 +315,11 @@ class AlibabaSupplierCrawler:
                 print(error_msg)
             return 0
         
+    def change_database_path(self, new_db_path):
+        """更改数据库路径并重新初始化"""
+        self.db_path = new_db_path
+        self.init_database()
+        
     def init_database(self):
         """初始化数据库"""
         conn = sqlite3.connect(self.db_path)
