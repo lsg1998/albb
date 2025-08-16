@@ -346,6 +346,7 @@ class AlibabaSupplierCrawler:
                 category_name TEXT,
                 save_path TEXT,
                 license_extracted BOOLEAN DEFAULT FALSE,
+                is_used BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -422,6 +423,13 @@ class AlibabaSupplierCrawler:
                 INSERT INTO proxies (name, host, port, username, password, is_active)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', ('默认代理', '127.0.0.1', 7890, 't15395136610470', 'Aa123456', True))
+        
+        # 检查并添加is_used字段（兼容现有数据库）
+        cursor.execute("PRAGMA table_info(suppliers)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'is_used' not in columns:
+            cursor.execute('ALTER TABLE suppliers ADD COLUMN is_used BOOLEAN DEFAULT FALSE')
+            print("已添加is_used字段到suppliers表")
         
         conn.commit()
         conn.close()
