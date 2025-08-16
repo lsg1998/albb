@@ -418,13 +418,15 @@ class AlibabaCrawlerGUI:
         ttk.Radiobutton(tab_frame, text="已成功", variable=self.db_list_tab_var, value="success", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Radiobutton(tab_frame, text="未提取", variable=self.db_list_tab_var, value="pending", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Radiobutton(tab_frame, text="已识别", variable=self.db_list_tab_var, value="recognized", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Radiobutton(tab_frame, text="已使用", variable=self.db_list_tab_var, value="used", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Radiobutton(tab_frame, text="未使用", variable=self.db_list_tab_var, value="unused", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         
         # 数据库列表
         list_frame = ttk.LabelFrame(parent, text="供应商列表", padding="15")
         list_frame.pack(fill=tk.BOTH, expand=True)
         
         # 列表
-        columns = ('序号', '店铺名称', 'Action URL', '分类', '执照状态', '识别状态')
+        columns = ('序号', '店铺名称', 'Action URL', '分类', '执照状态', '识别状态', '使用状态')
         self.db_list_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=20)
         
         for col in columns:
@@ -436,13 +438,56 @@ class AlibabaCrawlerGUI:
         self.db_list_tree.column('分类', width=150)
         self.db_list_tree.column('执照状态', width=100)
         self.db_list_tree.column('识别状态', width=100)
+        self.db_list_tree.column('使用状态', width=100)
         
         self.db_list_tree.pack(fill=tk.BOTH, expand=True)
+        
+        # 分页控件
+        pagination_frame = ttk.Frame(list_frame)
+        pagination_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # 分页信息和控件
+        self.current_page = 1
+        self.page_size = 100
+        self.total_pages = 1
+        
+        # 左侧分页信息
+        self.pagination_info_label = ttk.Label(pagination_frame, text="")
+        self.pagination_info_label.pack(side=tk.LEFT)
+        
+        # 右侧分页控件
+        pagination_controls = ttk.Frame(pagination_frame)
+        pagination_controls.pack(side=tk.RIGHT)
+        
+        ttk.Button(pagination_controls, text="首页", command=self.go_to_first_page).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pagination_controls, text="上一页", command=self.go_to_prev_page).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # 页码输入框
+        ttk.Label(pagination_controls, text="第").pack(side=tk.LEFT, padx=(5, 0))
+        self.page_entry = ttk.Entry(pagination_controls, width=5)
+        self.page_entry.pack(side=tk.LEFT, padx=(2, 2))
+        self.page_entry.bind('<Return>', self.go_to_page)
+        ttk.Label(pagination_controls, text="页").pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(pagination_controls, text="下一页", command=self.go_to_next_page).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pagination_controls, text="末页", command=self.go_to_last_page).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # 每页显示数量选择
+        ttk.Label(pagination_controls, text="每页").pack(side=tk.LEFT, padx=(10, 2))
+        self.page_size_var = tk.StringVar(value="100")
+        page_size_combo = ttk.Combobox(pagination_controls, textvariable=self.page_size_var, values=["50", "100", "200", "500"], width=5, state="readonly")
+        page_size_combo.pack(side=tk.LEFT, padx=(0, 2))
+        page_size_combo.bind('<<ComboboxSelected>>', self.on_page_size_changed)
+        ttk.Label(pagination_controls, text="条").pack(side=tk.LEFT)
         
         # 添加右键菜单
         self.db_list_context_menu = tk.Menu(self.root, tearoff=0)
         self.db_list_context_menu.add_command(label="编辑", command=self.edit_selected_supplier)
         self.db_list_context_menu.add_command(label="删除", command=self.delete_selected_supplier)
+        self.db_list_context_menu.add_separator()
+        self.db_list_context_menu.add_command(label="标记为已使用", command=self.mark_supplier_as_used)
+        self.db_list_context_menu.add_command(label="标记为未使用", command=self.mark_supplier_as_unused)
+        self.db_list_context_menu.add_command(label="已使用", command=self.show_used_suppliers)
         self.db_list_context_menu.add_separator()
         self.db_list_context_menu.add_command(label="识别执照", command=self.recognize_selected_db_list)
         self.db_list_context_menu.add_command(label="浏览文件", command=self.browse_selected_db_list)
@@ -462,6 +507,160 @@ class AlibabaCrawlerGUI:
         self.db_list_tree.configure(yscrollcommand=db_list_scrollbar.set)
         
         # 初始化时刷新列表
+        self.refresh_db_list_page()
+    
+    def show_db_list_context_menu(self, event):
+        """显示数据库列表右键菜单"""
+        try:
+            # 选中右键点击的项
+            item = self.db_list_tree.identify_row(event.y)
+            if item:
+                self.db_list_tree.selection_set(item)
+                self.db_list_context_menu.post(event.x_root, event.y_root)
+        except tk.TclError:
+            pass
+    
+    def mark_supplier_as_used(self):
+        """标记选中的供应商为已使用"""
+        selected_items = self.db_list_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("提示", "请先选择一个供应商")
+            return
+        
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            updated_count = 0
+            for item in selected_items:
+                item_values = self.db_list_tree.item(item)['values']
+                company_name = item_values[1].replace('...', '')  # 移除截断标记
+                
+                # 根据公司名称更新使用状态
+                cursor.execute('UPDATE suppliers SET is_used = 1 WHERE company_name LIKE ?', (f'%{company_name}%',))
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+            if updated_count > 0:
+                self.log_message(f"已标记 {updated_count} 个供应商为已使用")
+                self.refresh_db_list_page()  # 刷新列表显示
+            else:
+                messagebox.showwarning("提示", "未找到匹配的供应商")
+                
+        except Exception as e:
+            self.log_message(f"标记供应商为已使用失败: {e}")
+            messagebox.showerror("错误", f"标记失败: {e}")
+    
+    def mark_supplier_as_unused(self):
+        """标记选中的供应商为未使用"""
+        selected_items = self.db_list_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("提示", "请先选择一个供应商")
+            return
+        
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            updated_count = 0
+            for item in selected_items:
+                item_values = self.db_list_tree.item(item)['values']
+                company_name = item_values[1].replace('...', '')  # 移除截断标记
+                
+                # 根据公司名称更新使用状态
+                cursor.execute('UPDATE suppliers SET is_used = 0 WHERE company_name LIKE ?', (f'%{company_name}%',))
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+            if updated_count > 0:
+                self.log_message(f"已标记 {updated_count} 个供应商为未使用")
+                self.refresh_db_list_page()  # 刷新列表显示
+            else:
+                messagebox.showwarning("提示", "未找到匹配的供应商")
+                
+        except Exception as e:
+            self.log_message(f"标记供应商为未使用失败: {e}")
+            messagebox.showerror("错误", f"标记失败: {e}")
+    
+    def go_to_first_page(self):
+        """跳转到首页"""
+        self.current_page = 1
+        self.refresh_db_list_page()
+    
+    def go_to_prev_page(self):
+        """跳转到上一页"""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.refresh_db_list_page()
+    
+    def go_to_next_page(self):
+        """跳转到下一页"""
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.refresh_db_list_page()
+    
+    def go_to_last_page(self):
+        """跳转到末页"""
+        self.current_page = self.total_pages
+        self.refresh_db_list_page()
+    
+    def go_to_page(self, event=None):
+        """跳转到指定页面"""
+        try:
+            page = int(self.page_entry.get())
+            if 1 <= page <= self.total_pages:
+                self.current_page = page
+                self.refresh_db_list_page()
+            else:
+                messagebox.showwarning("警告", f"页码必须在1到{self.total_pages}之间")
+        except ValueError:
+            messagebox.showwarning("警告", "请输入有效的页码")
+    
+    def on_page_size_changed(self, event=None):
+        """页面大小改变时的处理"""
+        try:
+            self.page_size = int(self.page_size_var.get())
+            self.current_page = 1  # 重置到第一页
+            self.refresh_db_list_page()
+        except ValueError:
+            pass
+    
+    def update_pagination_info(self, total_count):
+        """更新分页信息"""
+        self.total_pages = max(1, (total_count + self.page_size - 1) // self.page_size)
+        
+        # 确保当前页不超过总页数
+        if self.current_page > self.total_pages:
+            self.current_page = self.total_pages
+        
+        # 更新页码输入框
+        self.page_entry.delete(0, tk.END)
+        self.page_entry.insert(0, str(self.current_page))
+        
+        # 更新分页信息标签
+        start_index = (self.current_page - 1) * self.page_size + 1
+        end_index = min(self.current_page * self.page_size, total_count)
+        
+        if total_count == 0:
+            info_text = "暂无数据"
+        else:
+            info_text = f"显示 {start_index}-{end_index} 条，共 {total_count} 条记录，第 {self.current_page}/{self.total_pages} 页"
+        
+        self.pagination_info_label.config(text=info_text)
+    
+    def show_used_suppliers(self):
+        """显示已使用的供应商"""
+        # 切换到"已使用"标签页
+        self.db_list_tab_var.set("used")
+        # 重置到第一页
+        self.current_page = 1
+        # 刷新列表
         self.refresh_db_list_page()
     
     def load_active_proxy(self):
@@ -855,6 +1054,12 @@ class AlibabaCrawlerGUI:
                     self.log_message("添加category_name字段到数据库...")
                     cursor.execute('ALTER TABLE suppliers ADD COLUMN category_name TEXT')
                     conn.commit()
+                
+                # 如果缺少is_used字段，添加它
+                if 'is_used' not in columns:
+                    self.log_message("添加is_used字段到数据库...")
+                    cursor.execute('ALTER TABLE suppliers ADD COLUMN is_used BOOLEAN DEFAULT FALSE')
+                    conn.commit()
             except Exception as e:
                 self.log_message(f"检查表结构时出错: {e}")
             
@@ -879,6 +1084,11 @@ class AlibabaCrawlerGUI:
                 base_query += ", category_name"
             else:
                 base_query += ", '' as category_name"
+                
+            if 'is_used' in columns:
+                base_query += ", is_used"
+            else:
+                base_query += ", 0 as is_used"
             
             base_query += " FROM suppliers"
             
@@ -895,11 +1105,32 @@ class AlibabaCrawlerGUI:
             cursor.execute(query)
             suppliers = cursor.fetchall()
             
-            # 统计数量
-            total_count = len(suppliers)
-            success_count = sum(1 for s in suppliers if len(s) >= 4 and s[3])
-            fail_count = total_count - success_count
-            self.db_list_stats_label.config(text=f"总数: {total_count}，已成功: {success_count}，未提取: {fail_count}")
+            # 统计各种状态的数量（基于总数据，不是当前页）
+            try:
+                # 统计总数
+                cursor.execute("SELECT COUNT(*) FROM suppliers")
+                all_count = cursor.fetchone()[0]
+                
+                # 统计已成功数量
+                cursor.execute("SELECT COUNT(*) FROM suppliers WHERE license_extracted = 1")
+                success_count = cursor.fetchone()[0]
+                
+                # 统计未提取数量
+                cursor.execute("SELECT COUNT(*) FROM suppliers WHERE license_extracted = 0 OR license_extracted IS NULL")
+                fail_count = cursor.fetchone()[0]
+                
+                # 统计已使用数量
+                cursor.execute("SELECT COUNT(*) FROM suppliers WHERE is_used = 1")
+                used_count = cursor.fetchone()[0]
+                
+                # 统计未使用数量
+                cursor.execute("SELECT COUNT(*) FROM suppliers WHERE is_used = 0 OR is_used IS NULL")
+                unused_count = cursor.fetchone()[0]
+                
+                self.db_list_stats_label.config(text=f"总数: {all_count}，已成功: {success_count}，未提取: {fail_count}，已使用: {used_count}，未使用: {unused_count}")
+            except Exception as e:
+                self.log_message(f"统计数量时出错: {e}")
+                self.db_list_stats_label.config(text=f"当前页显示: {len(suppliers)} 条记录")
             
             conn.close()
             
@@ -2133,42 +2364,76 @@ class AlibabaCrawlerGUI:
             except Exception as e:
                 self.log_message(f"检查表结构时出错: {e}")
             
+            # 检查并添加is_used字段
+            if 'is_used' not in columns:
+                self.log_message("添加is_used字段到数据库...")
+                cursor.execute('ALTER TABLE suppliers ADD COLUMN is_used BOOLEAN DEFAULT FALSE')
+                conn.commit()
+                columns.append('is_used')
+            
             # 根据Tab选择查询条件
             tab_filter = self.db_list_tab_var.get()
             
             # 构建基本查询
-            base_query = "SELECT id, company_name, action_url"
+            base_select = "SELECT id, company_name, action_url"
+            base_count = "SELECT COUNT(*)"
             
             # 根据表结构添加字段
             if 'license_extracted' in columns:
-                base_query += ", license_extracted"
+                base_select += ", license_extracted"
             else:
-                base_query += ", 0 as license_extracted"
+                base_select += ", 0 as license_extracted"
                 
             if 'category_id' in columns:
-                base_query += ", category_id"
+                base_select += ", category_id"
             else:
-                base_query += ", '' as category_id"
+                base_select += ", '' as category_id"
                 
             if 'category_name' in columns:
-                base_query += ", category_name"
+                base_select += ", category_name"
             else:
-                base_query += ", '' as category_name"
+                base_select += ", '' as category_name"
+                
+            if 'is_used' in columns:
+                base_select += ", is_used"
+            else:
+                base_select += ", 0 as is_used"
             
-            base_query += " FROM suppliers"
+            base_from = " FROM suppliers"
             
             # 添加过滤条件
+            where_clause = ""
             if tab_filter == "success":
-                query = f"{base_query} WHERE license_extracted = 1 ORDER BY created_at DESC"
+                where_clause = " WHERE license_extracted = 1"
             elif tab_filter == "pending":
-                query = f"{base_query} WHERE license_extracted = 0 OR license_extracted IS NULL ORDER BY created_at DESC"
+                where_clause = " WHERE license_extracted = 0 OR license_extracted IS NULL"
             elif tab_filter == "recognized":
-                query = f"{base_query} WHERE license_extracted = 1 AND (registration_no IS NOT NULL AND registration_no != '') ORDER BY created_at DESC"
-            else: # all
-                query = f"{base_query} ORDER BY created_at DESC"
+                where_clause = " WHERE license_extracted = 1 AND (registration_no IS NOT NULL AND registration_no != '')"
+            elif tab_filter == "used":
+                where_clause = " WHERE is_used = 1"
+            elif tab_filter == "unused":
+                where_clause = " WHERE is_used = 0 OR is_used IS NULL"
+            # else: all - 无where条件
+            
+            order_clause = " ORDER BY created_at DESC"
+            
+            # 先获取总数
+            count_query = base_count + base_from + where_clause
+            cursor.execute(count_query)
+            total_count = cursor.fetchone()[0]
+            
+            # 更新分页信息
+            self.update_pagination_info(total_count)
+            
+            # 计算分页参数
+            offset = (self.current_page - 1) * self.page_size
+            limit_clause = f" LIMIT {self.page_size} OFFSET {offset}"
+            
+            # 构建分页查询
+            query = base_select + base_from + where_clause + order_clause + limit_clause
             
             # 执行查询
-            self.log_message(f"执行查询: {query}")
+            self.log_message(f"执行分页查询: {query}")
             cursor.execute(query)
             suppliers = cursor.fetchall()
             
@@ -2196,6 +2461,11 @@ class AlibabaCrawlerGUI:
                     category_id = supplier_data[4] if supplier_data[4] else ""
                     category_name = supplier_data[5] if supplier_data[5] else ""
                 
+                # 处理使用状态
+                is_used = False
+                if len(supplier_data) > 6:
+                    is_used = bool(supplier_data[6])
+                
                 # 截断长文本
                 display_name = company_name[:50] + "..." if len(company_name) > 50 else company_name
                 display_url = action_url[:80] + "..." if len(action_url) > 80 else action_url
@@ -2216,9 +2486,12 @@ class AlibabaCrawlerGUI:
                     # 如果识别状态检查失败，不影响数据显示
                     self.log_message(f"检查识别状态时出错: {e}")
                 
+                # 使用状态
+                use_status = "已使用" if is_used else "未使用"
+                
                 # 插入数据到列表
                 try:
-                    item = self.db_list_tree.insert('', 'end', values=(i, display_name, display_url, display_category, status, recognize_status))
+                    item = self.db_list_tree.insert('', 'end', values=(i, display_name, display_url, display_category, status, recognize_status, use_status))
                     
                     # 设置颜色（如果支持）
                     try:
