@@ -940,7 +940,7 @@ class AlibabaSupplierCrawler:
                     
                     # 页面间延迟
                     if page < end_page:
-                        delay = random.uniform(2, 5)
+                        delay = random.uniform(0, 0)
                         log(f"⏱️  等待 {delay:.1f} 秒后继续下一页...")
                         await asyncio.sleep(delay)
             
@@ -1051,7 +1051,7 @@ class AlibabaSupplierCrawler:
                 
                 # 延迟
                 if page < end_page:
-                    delay = random.uniform(2, 5)
+                    delay = random.uniform(0, 0)
                     log(f"⏱️  等待 {delay:.1f} 秒后继续下一页...")
                     await asyncio.sleep(delay)
         
