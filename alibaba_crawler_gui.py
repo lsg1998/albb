@@ -420,6 +420,7 @@ class AlibabaCrawlerGUI:
         ttk.Radiobutton(tab_frame, text="已识别", variable=self.db_list_tab_var, value="recognized", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Radiobutton(tab_frame, text="已使用", variable=self.db_list_tab_var, value="used", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Radiobutton(tab_frame, text="未使用", variable=self.db_list_tab_var, value="unused", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Radiobutton(tab_frame, text="问题数据", variable=self.db_list_tab_var, value="problematic", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         
         # 数据库列表
         list_frame = ttk.LabelFrame(parent, text="供应商列表", padding="15")
@@ -488,6 +489,10 @@ class AlibabaCrawlerGUI:
         self.db_list_context_menu.add_command(label="标记为已使用", command=self.mark_supplier_as_used)
         self.db_list_context_menu.add_command(label="标记为未使用", command=self.mark_supplier_as_unused)
         self.db_list_context_menu.add_command(label="已使用", command=self.show_used_suppliers)
+        self.db_list_context_menu.add_separator()
+        self.db_list_context_menu.add_command(label="重置失败次数", command=self.reset_extraction_failures)
+        self.db_list_context_menu.add_command(label="取消跳过标记", command=self.unmark_skip_extraction)
+        self.db_list_context_menu.add_command(label="标记为跳过", command=self.mark_skip_extraction)
         self.db_list_context_menu.add_separator()
         self.db_list_context_menu.add_command(label="识别执照", command=self.recognize_selected_db_list)
         self.db_list_context_menu.add_command(label="浏览文件", command=self.browse_selected_db_list)
@@ -662,6 +667,128 @@ class AlibabaCrawlerGUI:
         self.current_page = 1
         # 刷新列表
         self.refresh_db_list_page()
+    
+    def reset_extraction_failures(self):
+        """重置选中供应商的失败次数"""
+        selected_items = self.db_list_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("提示", "请先选择一个或多个供应商")
+            return
+        
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            updated_count = 0
+            for item in selected_items:
+                item_values = self.db_list_tree.item(item)['values']
+                company_name = item_values[1].replace('...', '')  # 移除截断标记
+                
+                # 重置失败次数
+                cursor.execute('''
+                    UPDATE suppliers 
+                    SET extraction_failed_count = 0,
+                        last_extraction_attempt = NULL
+                    WHERE company_name = ?
+                ''', (company_name,))
+                
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+            if updated_count > 0:
+                messagebox.showinfo("成功", f"已重置 {updated_count} 个供应商的失败次数")
+                self.refresh_db_list_page()
+            else:
+                messagebox.showwarning("提示", "没有找到匹配的供应商")
+                
+        except Exception as e:
+            messagebox.showerror("错误", f"重置失败次数时出错: {e}")
+    
+    def unmark_skip_extraction(self):
+        """取消选中供应商的跳过标记"""
+        selected_items = self.db_list_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("提示", "请先选择一个或多个供应商")
+            return
+        
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            updated_count = 0
+            for item in selected_items:
+                item_values = self.db_list_tree.item(item)['values']
+                company_name = item_values[1].replace('...', '')  # 移除截断标记
+                
+                # 取消跳过标记并重置失败次数
+                cursor.execute('''
+                    UPDATE suppliers 
+                    SET skip_extraction = 0,
+                        extraction_failed_count = 0,
+                        last_extraction_attempt = NULL
+                    WHERE company_name = ?
+                ''', (company_name,))
+                
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+            if updated_count > 0:
+                messagebox.showinfo("成功", f"已取消 {updated_count} 个供应商的跳过标记")
+                self.refresh_db_list_page()
+            else:
+                messagebox.showwarning("提示", "没有找到匹配的供应商")
+                
+        except Exception as e:
+            messagebox.showerror("错误", f"取消跳过标记时出错: {e}")
+    
+    def mark_skip_extraction(self):
+        """手动标记选中供应商为跳过提取"""
+        selected_items = self.db_list_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("提示", "请先选择一个或多个供应商")
+            return
+        
+        # 确认操作
+        if not messagebox.askyesno("确认", "确定要将选中的供应商标记为跳过提取吗？\n这将使它们不再出现在一键获取执照的处理列表中。"):
+            return
+        
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            updated_count = 0
+            for item in selected_items:
+                item_values = self.db_list_tree.item(item)['values']
+                company_name = item_values[1].replace('...', '')  # 移除截断标记
+                
+                # 标记为跳过
+                cursor.execute('''
+                    UPDATE suppliers 
+                    SET skip_extraction = 1,
+                        last_extraction_attempt = CURRENT_TIMESTAMP
+                    WHERE company_name = ?
+                ''', (company_name,))
+                
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+            if updated_count > 0:
+                messagebox.showinfo("成功", f"已标记 {updated_count} 个供应商为跳过提取")
+                self.refresh_db_list_page()
+            else:
+                messagebox.showwarning("提示", "没有找到匹配的供应商")
+                
+        except Exception as e:
+            messagebox.showerror("错误", f"标记跳过时出错: {e}")
     
     def load_active_proxy(self):
         """从数据库加载当前活跃的代理配置"""
@@ -1496,7 +1623,12 @@ class AlibabaCrawlerGUI:
         conn = sqlite3.connect(self.crawler.db_path)
         cursor = conn.cursor()
         try:
-            cursor.execute('SELECT company_id, company_name, action_url FROM suppliers WHERE license_extracted = 0 OR license_extracted IS NULL')
+            cursor.execute('''
+                SELECT company_id, company_name, action_url 
+                FROM suppliers 
+                WHERE (license_extracted = 0 OR license_extracted IS NULL)
+                  AND (skip_extraction = 0 OR skip_extraction IS NULL)
+            ''')
             suppliers = cursor.fetchall()
         except Exception as e:
             # 兼容旧表结构
@@ -1536,7 +1668,8 @@ class AlibabaCrawlerGUI:
                         cursor.execute('''
                             SELECT company_id, company_name, action_url 
                             FROM suppliers 
-                            WHERE license_extracted = 0 OR license_extracted IS NULL
+                            WHERE (license_extracted = 0 OR license_extracted IS NULL)
+                              AND (skip_extraction = 0 OR skip_extraction IS NULL)
                             ORDER BY created_at DESC
                         ''')
                         suppliers = cursor.fetchall()
@@ -2406,13 +2539,15 @@ class AlibabaCrawlerGUI:
             if tab_filter == "success":
                 where_clause = " WHERE license_extracted = 1"
             elif tab_filter == "pending":
-                where_clause = " WHERE license_extracted = 0 OR license_extracted IS NULL"
+                where_clause = " WHERE (license_extracted = 0 OR license_extracted IS NULL) AND (skip_extraction = 0 OR skip_extraction IS NULL)"
             elif tab_filter == "recognized":
                 where_clause = " WHERE license_extracted = 1 AND (registration_no IS NOT NULL AND registration_no != '')"
             elif tab_filter == "used":
                 where_clause = " WHERE is_used = 1"
             elif tab_filter == "unused":
                 where_clause = " WHERE is_used = 0 OR is_used IS NULL"
+            elif tab_filter == "problematic":
+                where_clause = " WHERE skip_extraction = 1"
             # else: all - 无where条件
             
             order_clause = " ORDER BY created_at DESC"
