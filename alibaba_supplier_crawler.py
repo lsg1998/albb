@@ -391,23 +391,45 @@ class AlibabaSupplierCrawler:
                 FOREIGN KEY (supplier_id) REFERENCES suppliers (id)
             )
         ''')
+        
+        # 创建公司注册信息表
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS license_info (
+            CREATE TABLE IF NOT EXISTS company_registration (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                supplier_id INTEGER,
-                registration_no TEXT,
-                company_name TEXT,
-                date_of_issue TEXT,
-                date_of_expiry TEXT,
-                registered_capital TEXT,
-                country_territory TEXT,
+                profile_id VARCHAR(100) NOT NULL,
+                supplier_id VARCHAR(100) NOT NULL,
+                registration_number VARCHAR(50) NOT NULL,
+                company_name VARCHAR(200) NOT NULL,
                 registered_address TEXT,
-                year_established TEXT,
-                legal_form TEXT,
-                legal_representative TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (supplier_id) REFERENCES suppliers (id)
+                province VARCHAR(50),
+                city VARCHAR(50),
+                district VARCHAR(50),
+                zip_code VARCHAR(10),
+                legal_representative VARCHAR(100),
+                issue_date DATE,
+                expiration_date DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(supplier_id, registration_number)
             )
+        ''')
+        
+        # 为company_registration表创建索引
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_supplier_id ON company_registration(supplier_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_registration_number ON company_registration(registration_number)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_name ON company_registration(company_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_province_city ON company_registration(province, city)')
+        
+        # 创建触发器，自动更新updated_at字段
+        cursor.execute('''
+            CREATE TRIGGER IF NOT EXISTS update_company_registration_timestamp 
+                AFTER UPDATE ON company_registration
+                FOR EACH ROW
+            BEGIN
+                UPDATE company_registration 
+                SET updated_at = CURRENT_TIMESTAMP 
+                WHERE id = NEW.id;
+            END
         ''')
         
         # 创建代理配置表
@@ -438,6 +460,14 @@ class AlibabaSupplierCrawler:
         if 'is_used' not in columns:
             cursor.execute('ALTER TABLE suppliers ADD COLUMN is_used BOOLEAN DEFAULT FALSE')
             print("已添加is_used字段到suppliers表")
+        
+        # 检查并添加ocr_recognition_status字段（兼容现有数据库）
+        if 'ocr_recognition_status' not in columns:
+            cursor.execute('ALTER TABLE suppliers ADD COLUMN ocr_recognition_status TEXT DEFAULT "pending"')
+            print("已添加ocr_recognition_status字段到suppliers表")
+            # 创建索引以提高查询效率
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_ocr_recognition_status ON suppliers(ocr_recognition_status)')
+            print("已为ocr_recognition_status字段创建索引")
         
         conn.commit()
         conn.close()

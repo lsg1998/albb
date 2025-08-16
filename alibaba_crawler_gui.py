@@ -18,6 +18,9 @@ class AlibabaCrawlerGUI:
         self.crawler.init_database()
         # 从数据库加载当前活跃代理
         self.proxy = self.load_active_proxy()
+        # OCR识别相关变量
+        self.ocr_running = False
+        self.ocr_thread = None
         self.setup_gui()
     
     def setup_gui(self):
@@ -66,6 +69,10 @@ class AlibabaCrawlerGUI:
         license_frame = ttk.Frame(notebook)
         notebook.add(license_frame, text="一键获取执照")
         
+        # 营业执照识别页面
+        ocr_frame = ttk.Frame(notebook)
+        notebook.add(ocr_frame, text="营业执照识别")
+        
         # 代理配置页面
         proxy_frame = ttk.Frame(notebook)
         notebook.add(proxy_frame, text="代理配置")
@@ -78,6 +85,9 @@ class AlibabaCrawlerGUI:
         
         # 设置执照提取页面
         self.setup_license_page(license_frame)
+        
+        # 设置营业执照识别页面
+        self.setup_ocr_page(ocr_frame)
         
         # 设置代理配置页面
         self.setup_proxy_page(proxy_frame)
@@ -431,6 +441,123 @@ class AlibabaCrawlerGUI:
         self.extract_log_text.tag_configure("ERROR", foreground="red")
         self.extract_log_text.tag_configure("SUCCESS", foreground="green")
     
+    def setup_ocr_page(self, parent):
+        """设置营业执照识别页面"""
+        # OCR识别设置区域
+        ocr_settings_frame = ttk.LabelFrame(parent, text="识别设置", padding="15")
+        ocr_settings_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 第一行：识别数量和线程数设置
+        settings_row1 = ttk.Frame(ocr_settings_frame)
+        settings_row1.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(settings_row1, text="识别数量:").pack(side=tk.LEFT)
+        self.ocr_count_var = tk.StringVar(value="10")
+        ocr_count_entry = ttk.Entry(settings_row1, textvariable=self.ocr_count_var, width=10)
+        ocr_count_entry.pack(side=tk.LEFT, padx=(5, 20))
+        
+        ttk.Label(settings_row1, text="OCR线程数:").pack(side=tk.LEFT)
+        self.ocr_threads_var = tk.StringVar(value="3")
+        ocr_threads_entry = ttk.Entry(settings_row1, textvariable=self.ocr_threads_var, width=10)
+        ocr_threads_entry.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 按钮区域
+        ocr_btn_frame = ttk.Frame(ocr_settings_frame)
+        ocr_btn_frame.pack(fill=tk.X)
+        
+        self.ocr_recognize_btn = ttk.Button(ocr_btn_frame, text="一键识别营业执照", command=self.start_ocr_recognition)
+        self.ocr_recognize_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.stop_ocr_btn = ttk.Button(ocr_btn_frame, text="停止识别", command=self.stop_ocr_recognition, state=tk.DISABLED)
+        self.stop_ocr_btn.pack(side=tk.LEFT)
+        
+        # 进度显示区域
+        ocr_progress_frame = ttk.LabelFrame(parent, text="识别进度", padding="15")
+        ocr_progress_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 进度条
+        self.ocr_progress = ttk.Progressbar(ocr_progress_frame, mode='determinate')
+        self.ocr_progress.pack(fill=tk.X, pady=(0, 5))
+        
+        # 状态标签
+        self.ocr_status_label = ttk.Label(ocr_progress_frame, text="准备就绪")
+        self.ocr_status_label.pack(anchor=tk.W)
+        
+        # 详细进度信息
+        self.ocr_detail_label = ttk.Label(ocr_progress_frame, text="")
+        self.ocr_detail_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # 识别结果列表
+        ocr_result_frame = ttk.LabelFrame(parent, text="识别结果列表", padding="15")
+        ocr_result_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 识别结果操作按钮
+        ocr_result_btn_frame = ttk.Frame(ocr_result_frame)
+        ocr_result_btn_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Button(ocr_result_btn_frame, text="刷新列表", command=self.refresh_ocr_results).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(ocr_result_btn_frame, text="导出结果", command=self.export_ocr_results).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(ocr_result_btn_frame, text="批量导入缓存", command=self.batch_import_ocr_cache_to_db).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(ocr_result_btn_frame, text="清空结果", command=self.clear_ocr_results).pack(side=tk.LEFT)
+        
+        # 识别结果表格
+        ocr_columns = ('序号', '公司名称', '统一社会信用代码', '法人', '公司地址', '省市区')
+        self.ocr_result_tree = ttk.Treeview(ocr_result_frame, columns=ocr_columns, show='headings', height=8)
+        
+        # 设置列标题和宽度
+        for col in ocr_columns:
+            self.ocr_result_tree.heading(col, text=col)
+            if col == '序号':
+                self.ocr_result_tree.column(col, width=50, anchor=tk.CENTER)
+            elif col == '公司名称':
+                self.ocr_result_tree.column(col, width=200, anchor=tk.W)
+            elif col == '统一社会信用代码':
+                self.ocr_result_tree.column(col, width=150, anchor=tk.CENTER)
+            elif col == '法人':
+                self.ocr_result_tree.column(col, width=100, anchor=tk.CENTER)
+            elif col == '公司地址':
+                self.ocr_result_tree.column(col, width=250, anchor=tk.W)
+            elif col == '省市区':
+                self.ocr_result_tree.column(col, width=120, anchor=tk.CENTER)
+            else:
+                self.ocr_result_tree.column(col, width=100, anchor=tk.CENTER)
+        
+        # 添加滚动条
+        ocr_result_scrollbar = ttk.Scrollbar(ocr_result_frame, orient=tk.VERTICAL, command=self.ocr_result_tree.yview)
+        self.ocr_result_tree.configure(yscrollcommand=ocr_result_scrollbar.set)
+        
+        self.ocr_result_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ocr_result_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # OCR识别日志
+        ocr_log_frame = ttk.LabelFrame(parent, text="识别日志", padding="15")
+        ocr_log_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 日志过滤区域
+        ocr_filter_frame = ttk.Frame(ocr_log_frame)
+        ocr_filter_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(ocr_filter_frame, text="过滤:").pack(side=tk.LEFT)
+        self.ocr_log_filter_entry = ttk.Entry(ocr_filter_frame, width=30)
+        self.ocr_log_filter_entry.pack(side=tk.LEFT, padx=(5, 5))
+        ttk.Button(ocr_filter_frame, text="应用过滤", command=self.apply_ocr_log_filter).pack(side=tk.LEFT)
+        ttk.Button(ocr_filter_frame, text="清除过滤", command=self.clear_ocr_log_filter).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 日志显示
+        self.ocr_log_text = tk.Text(ocr_log_frame, height=15, wrap=tk.WORD)
+        ocr_log_scrollbar = ttk.Scrollbar(ocr_log_frame, orient=tk.VERTICAL, command=self.ocr_log_text.yview)
+        self.ocr_log_text.configure(yscrollcommand=ocr_log_scrollbar.set)
+        
+        self.ocr_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ocr_log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 设置日志标签和颜色
+        self.ocr_log_text.tag_configure("DEBUG", foreground="gray")
+        self.ocr_log_text.tag_configure("INFO", foreground="black")
+        self.ocr_log_text.tag_configure("WARNING", foreground="orange")
+        self.ocr_log_text.tag_configure("ERROR", foreground="red")
+        self.ocr_log_text.tag_configure("SUCCESS", foreground="green")
+    
     def setup_proxy_page(self, parent):
         """设置代理配置页面"""
         # 当前代理信息
@@ -519,6 +646,7 @@ class AlibabaCrawlerGUI:
         ttk.Radiobutton(tab_frame, text="已使用", variable=self.db_list_tab_var, value="used", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Radiobutton(tab_frame, text="未使用", variable=self.db_list_tab_var, value="unused", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Radiobutton(tab_frame, text="问题数据", variable=self.db_list_tab_var, value="problematic", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Radiobutton(tab_frame, text="识别错误", variable=self.db_list_tab_var, value="ocr_error", command=self.refresh_db_list_page).pack(side=tk.LEFT, padx=(0, 10))
         
         # 数据库列表
         list_frame = ttk.LabelFrame(parent, text="供应商列表", padding="15")
@@ -2602,6 +2730,13 @@ class AlibabaCrawlerGUI:
                 conn.commit()
                 columns.append('is_used')
             
+            # 检查并添加ocr_recognition_status字段
+            if 'ocr_recognition_status' not in columns:
+                self.log_message("添加ocr_recognition_status字段到数据库...")
+                cursor.execute('ALTER TABLE suppliers ADD COLUMN ocr_recognition_status TEXT DEFAULT "pending"')
+                conn.commit()
+                columns.append('ocr_recognition_status')
+            
             # 根据Tab选择查询条件
             tab_filter = self.db_list_tab_var.get()
             
@@ -2629,6 +2764,11 @@ class AlibabaCrawlerGUI:
                 base_select += ", is_used"
             else:
                 base_select += ", 0 as is_used"
+                
+            if 'ocr_recognition_status' in columns:
+                base_select += ", ocr_recognition_status"
+            else:
+                base_select += ", 'pending' as ocr_recognition_status"
             
             base_from = " FROM suppliers"
             
@@ -2646,6 +2786,8 @@ class AlibabaCrawlerGUI:
                 where_clause = " WHERE is_used = 0 OR is_used IS NULL"
             elif tab_filter == "problematic":
                 where_clause = " WHERE skip_extraction = 1"
+            elif tab_filter == "ocr_error":
+                where_clause = " WHERE ocr_recognition_status = 'error'"
             # else: all - 无where条件
             
             order_clause = " ORDER BY created_at DESC"
@@ -2699,6 +2841,11 @@ class AlibabaCrawlerGUI:
                 if len(supplier_data) > 6:
                     is_used = bool(supplier_data[6])
                 
+                # 处理OCR识别状态
+                ocr_status = "pending"
+                if len(supplier_data) > 7:
+                    ocr_status = supplier_data[7] if supplier_data[7] else "pending"
+                
                 # 截断长文本
                 display_name = company_name[:50] + "..." if len(company_name) > 50 else company_name
                 display_url = action_url[:80] + "..." if len(action_url) > 80 else action_url
@@ -2708,16 +2855,15 @@ class AlibabaCrawlerGUI:
                 status = "已获取" if license_extracted else "未获取"
                 status_color = "green" if license_extracted else "red"
                 
-                # 识别状态（检查是否有OCR识别结果）
-                recognize_status = "未识别"
-                try:
-                    # 使用supplier_id直接查询
-                    cursor.execute('SELECT COUNT(*) FROM license_info WHERE supplier_id = ? AND (registration_no IS NOT NULL AND registration_no != "")', (supplier_id,))
-                    ocr_count = cursor.fetchone()[0]
-                    recognize_status = "已识别" if ocr_count > 0 else "未识别"
-                except Exception as e:
-                    # 如果识别状态检查失败，不影响数据显示
-                    self.log_message(f"检查识别状态时出错: {e}")
+                # 识别状态（基于OCR识别状态字段）
+                if ocr_status == "completed":
+                    recognize_status = "已识别"
+                elif ocr_status == "error":
+                    recognize_status = "识别错误"
+                elif ocr_status == "processing":
+                    recognize_status = "识别中"
+                else:
+                    recognize_status = "未识别"
                 
                 # 使用状态
                 use_status = "已使用" if is_used else "未使用"
@@ -3081,6 +3227,24 @@ class AlibabaCrawlerGUI:
         if hasattr(self, 'log_text'):
             self.log_message(message)
     
+    def log_ocr_message(self, message, level="INFO"):
+        """添加OCR识别日志消息（带级别）"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] [{level}] {message}\n"
+        
+        # 根据日志级别设置标签
+        if level not in ["DEBUG", "INFO", "WARNING", "ERROR", "SUCCESS"]:
+            level = "INFO"
+        
+        # 插入日志到OCR日志文本框
+        if hasattr(self, 'ocr_log_text'):
+            self.ocr_log_text.insert(tk.END, log_entry, level)
+            self.ocr_log_text.see(tk.END)
+        
+        # 同时添加到主日志（如果存在）
+        if hasattr(self, 'log_text'):
+            self.log_message(message)
+    
     def save_extract_log(self, auto=False):
         """保存提取日志到文件"""
         try:
@@ -3175,6 +3339,62 @@ class AlibabaCrawlerGUI:
             self.log_extract_message("已清除过滤", "INFO")
         else:
             self.log_extract_message("没有应用过滤", "INFO")
+
+    def apply_ocr_log_filter(self):
+        """应用OCR日志过滤"""
+        filter_text = self.ocr_log_filter_entry.get().strip()
+        if not filter_text:
+            messagebox.showwarning("提示", "请输入过滤条件")
+            return
+        
+        # 保存原始日志内容
+        if not hasattr(self, 'original_ocr_log_content'):
+            self.original_ocr_log_content = self.ocr_log_text.get("1.0", tk.END)
+        
+        # 清空当前显示
+        self.ocr_log_text.delete("1.0", tk.END)
+        
+        # 按行过滤并显示匹配行
+        for line in self.original_ocr_log_content.split('\n'):
+            if filter_text.lower() in line.lower():
+                # 确定行的日志级别
+                level = "INFO"
+                for tag in ["DEBUG", "INFO", "WARNING", "ERROR", "SUCCESS"]:
+                    if f"[{tag}]" in line:
+                        level = tag
+                        break
+                
+                self.ocr_log_text.insert(tk.END, line + "\n", level)
+        
+        self.log_ocr_message(f"已应用过滤: '{filter_text}'", "INFO")
+    
+    def clear_ocr_log_filter(self):
+        """清除OCR日志过滤"""
+        if hasattr(self, 'original_ocr_log_content'):
+            # 清空当前显示
+            self.ocr_log_text.delete("1.0", tk.END)
+            
+            # 恢复原始内容
+            lines = self.original_ocr_log_content.split('\n')
+            for line in lines:
+                # 确定行的日志级别
+                level = "INFO"
+                for tag in ["DEBUG", "INFO", "WARNING", "ERROR", "SUCCESS"]:
+                    if f"[{tag}]" in line:
+                        level = tag
+                        break
+                
+                if line.strip():  # 只插入非空行
+                    self.ocr_log_text.insert(tk.END, line + "\n", level)
+            
+            # 清除过滤条件
+            self.ocr_log_filter_entry.delete(0, tk.END)
+            self.log_ocr_message("已清除过滤", "INFO")
+            
+            # 删除保存的原始内容
+            delattr(self, 'original_ocr_log_content')
+        else:
+            self.log_ocr_message("没有应用过滤", "INFO")
 
     def log_crawl_message(self, message, level="INFO"):
         """添加爬虫日志消息（带级别）"""
@@ -3860,8 +4080,8 @@ class AlibabaCrawlerGUI:
         thread_frame.pack(fill=tk.X, pady=5)
         
         ttk.Label(thread_frame, text="并发线程数:").pack(side=tk.LEFT)
-        thread_count_var = tk.StringVar(value="3")
-        ttk.Entry(thread_frame, textvariable=thread_count_var, width=8).pack(side=tk.LEFT, padx=(5, 0))
+        self.ocr_thread_count_var = tk.StringVar(value="3")
+        ttk.Entry(thread_frame, textvariable=self.ocr_thread_count_var, width=8).pack(side=tk.LEFT, padx=(5, 0))
         ttk.Label(thread_frame, text="(建议1-5个)").pack(side=tk.LEFT, padx=(5, 0))
         
         # 间隔设置
@@ -3914,7 +4134,7 @@ class AlibabaCrawlerGUI:
             try:
                 start_page = int(start_page_var.get())
                 end_page = int(end_page_var.get())
-                thread_count = int(thread_count_var.get())
+                thread_count = int(self.ocr_thread_count_var.get())
                 delay = float(delay_var.get())
                 
                 if start_page <= 0 or end_page <= 0:
@@ -4279,6 +4499,469 @@ class AlibabaCrawlerGUI:
         batch_thread = threading.Thread(target=run_batch_save)
         batch_thread.daemon = True
         batch_thread.start()
+
+    def start_ocr_recognition(self):
+        """启动OCR识别"""
+        if self.ocr_running:
+            messagebox.showwarning("警告", "OCR识别正在进行中，请等待完成或停止后再试")
+            return
+        
+        try:
+            ocr_count = int(self.ocr_count_var.get())
+            ocr_threads = int(self.ocr_threads_var.get())
+            
+            if ocr_count <= 0:
+                messagebox.showerror("错误", "识别数量必须大于0")
+                return
+            
+            if ocr_threads <= 0 or ocr_threads > 10:
+                messagebox.showerror("错误", "OCR线程数必须在1-10之间")
+                return
+                
+        except ValueError:
+            messagebox.showerror("错误", "请输入有效的数字")
+            return
+        
+        # 启动OCR识别线程
+        self.ocr_running = True
+        self.ocr_recognize_btn.config(state=tk.DISABLED)
+        self.stop_ocr_btn.config(state=tk.NORMAL)
+        
+        self.ocr_thread = threading.Thread(
+            target=self.run_ocr_recognition,
+            args=(ocr_count, ocr_threads),
+            daemon=True
+        )
+        self.ocr_thread.start()
+        
+        self.log_ocr_message(f"开始OCR识别，目标数量: {ocr_count}，线程数: {ocr_threads}", "INFO")
+    
+    def stop_ocr_recognition(self):
+        """停止OCR识别"""
+        if self.ocr_running:
+            self.ocr_running = False
+            self.log_ocr_message("正在停止OCR识别...", "WARNING")
+    
+    def run_ocr_recognition(self, ocr_count, ocr_threads):
+        """运行OCR识别的主逻辑"""
+        try:
+            # 导入OCR模块
+            import sys
+            ocr_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ocr')
+            if ocr_path not in sys.path:
+                sys.path.append(ocr_path)
+            
+            from ocr_baidu_api import BaiduLicenseOCRAPI
+            
+            # 获取未使用的供应商数据
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 查询未使用且有执照的供应商
+            cursor.execute("""
+                SELECT s.id, s.company_name, l.license_url 
+                FROM suppliers s 
+                JOIN licenses l ON s.company_id = l.supplier_id 
+                WHERE s.is_used = 0 AND s.ocr_recognition_status = 'pending'
+                AND l.license_url IS NOT NULL AND l.license_url != ''
+                LIMIT ?
+            """, (ocr_count,))
+            
+            suppliers_data = cursor.fetchall()
+            conn.close()
+            
+            if not suppliers_data:
+                self.root.after(0, lambda: self.log_ocr_message("没有找到需要识别的供应商数据", "WARNING"))
+                return
+            
+            self.root.after(0, lambda: self.log_ocr_message(f"找到 {len(suppliers_data)} 个供应商需要识别", "INFO"))
+            
+            # 初始化OCR
+            ocr = BaiduLicenseOCRAPI()
+            
+            # 使用线程池进行批量识别
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import time
+            
+            success_count = 0
+            error_count = 0
+            total_count = len(suppliers_data)
+            
+            # 初始化进度
+            self.root.after(0, lambda: self.ocr_progress.configure(maximum=total_count, value=0))
+            self.root.after(0, lambda: self.ocr_status_label.config(text="开始识别..."))
+            self.root.after(0, lambda: self.ocr_detail_label.config(text=f"总计: {total_count} 个供应商"))
+            
+            with ThreadPoolExecutor(max_workers=ocr_threads) as executor:
+                # 提交所有任务
+                future_to_supplier = {
+                    executor.submit(self.process_single_ocr, ocr, supplier_id, supplier_name, license_url): 
+                    (supplier_id, supplier_name) 
+                    for supplier_id, supplier_name, license_url in suppliers_data
+                }
+                
+                # 处理完成的任务
+                for future in as_completed(future_to_supplier):
+                    if not self.ocr_running:
+                        break
+                    
+                    supplier_id, supplier_name = future_to_supplier[future]
+                    try:
+                        result = future.result()
+                        if result['success']:
+                            success_count += 1
+                            self.root.after(0, lambda name=supplier_name: 
+                                self.log_ocr_message(f"✓ {name} 识别成功", "SUCCESS"))
+                        else:
+                            error_count += 1
+                            self.root.after(0, lambda name=supplier_name, err=result['error']: 
+                                self.log_ocr_message(f"✗ {name} 识别失败: {err}", "ERROR"))
+                    except Exception as e:
+                        error_count += 1
+                        self.root.after(0, lambda name=supplier_name, err=str(e): 
+                            self.log_ocr_message(f"✗ {name} 处理异常: {err}", "ERROR"))
+                    
+                    # 更新进度
+                    completed = success_count + error_count
+                    progress_percent = (completed / total_count) * 100
+                    self.root.after(0, lambda: self.ocr_progress.configure(value=completed))
+                    self.root.after(0, lambda: self.ocr_status_label.config(text=f"进度: {completed}/{total_count} ({progress_percent:.1f}%)"))
+                    self.root.after(0, lambda: self.ocr_detail_label.config(text=f"成功: {success_count}，失败: {error_count}"))
+                    
+                    # 添加小延迟避免过于频繁的API调用
+                    time.sleep(0.1)
+            
+            # 完成统计
+            self.root.after(0, lambda: self.log_ocr_message(
+                f"OCR识别完成！成功: {success_count}，失败: {error_count}", "SUCCESS"))
+            
+            # 更新OCR进度状态
+            self.root.after(0, lambda: self.ocr_progress.configure(value=100))
+            self.root.after(0, lambda: self.ocr_status_label.config(text="识别完成"))
+            self.root.after(0, lambda: self.ocr_detail_label.config(text=f"成功: {success_count}，失败: {error_count}"))
+            
+            # 批量导入OCR缓存文件到数据库
+            self.root.after(0, lambda: self.batch_import_ocr_cache_to_db())
+            
+            # 刷新数据库列表
+            if success_count > 0:
+                self.root.after(0, lambda: self.refresh_db_list_page())
+                
+        except Exception as e:
+            error_msg = f"OCR识别异常: {str(e)}"
+            self.root.after(0, lambda: self.log_ocr_message(error_msg, "ERROR"))
+        finally:
+            # 重置状态
+            self.ocr_running = False
+            self.root.after(0, lambda: self.ocr_recognize_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_ocr_btn.config(state=tk.DISABLED))
+    
+    def process_single_ocr(self, ocr, supplier_id, supplier_name, license_url):
+        """处理单个供应商的OCR识别"""
+        try:
+            # 调用OCR识别
+            result = ocr.recognize_license_from_url(license_url)
+            
+            if result['success']:
+                # 保存识别结果到company_registration表
+                self.save_ocr_result(supplier_id, result['data'])
+                
+                # 更新suppliers表状态
+                self.update_supplier_ocr_status(supplier_id, 'success', True)
+                
+                return {'success': True}
+            else:
+                # 标记识别失败
+                self.update_supplier_ocr_status(supplier_id, 'error', False)
+                return {'success': False, 'error': result.get('error', '未知错误')}
+                
+        except Exception as e:
+            # 标记识别异常
+            self.update_supplier_ocr_status(supplier_id, 'error', False)
+            return {'success': False, 'error': str(e)}
+    
+    def save_ocr_result(self, supplier_id, ocr_data):
+        """保存OCR识别结果到本地文件（避免数据库锁定问题）"""
+        try:
+            # 调试信息：打印OCR数据结构
+            self.root.after(0, lambda: self.log_ocr_message(f"开始保存OCR结果，供应商ID: {supplier_id}", "INFO"))
+            
+            # 从OCR结果中提取数据
+            data = ocr_data.get('Data', {}) if isinstance(ocr_data, dict) and 'Data' in ocr_data else ocr_data
+            
+            # 检查关键字段是否存在
+            company_name = data.get('公司名称', '')
+            registration_number = data.get('注册号', '')
+            
+            if not company_name and not registration_number:
+                # 标记为无法识别
+                self.update_supplier_ocr_status(supplier_id, 'failed', False)
+                self.root.after(0, lambda: self.log_ocr_message(f"⚠️ 供应商ID {supplier_id} 无法识别关键信息，已标记为失败", "WARNING"))
+                return
+            
+            # 创建OCR结果缓存目录
+            cache_dir = os.path.join(os.path.dirname(self.crawler.db_path), 'ocr_cache')
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            # 生成唯一的文件名
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # 精确到毫秒
+            cache_file = os.path.join(cache_dir, f'ocr_result_{supplier_id}_{timestamp}.json')
+            
+            # 准备保存的数据
+            ocr_result = {
+                'supplier_id': supplier_id,
+                'profile_id': '',  # profile_id设置为空
+                'registration_number': registration_number,
+                'company_name': company_name,
+                'registered_address': data.get('注册地址', ''),
+                'province': data.get('省份', ''),
+                'city': data.get('城市', ''),
+                'district': data.get('区县', ''),
+                'zip_code': data.get('邮编', ''),
+                'legal_representative': data.get('法定代表人', ''),
+                'issue_date': data.get('发证日期', ''),
+                'expiration_date': data.get('到期日期', ''),
+                'created_at': datetime.now().isoformat(),
+                'raw_data': data  # 保存原始OCR数据
+            }
+            
+            # 保存到本地文件
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(ocr_result, f, ensure_ascii=False, indent=2)
+            
+            self.root.after(0, lambda: self.log_ocr_message(f"✓ OCR结果已保存到缓存文件，供应商ID: {supplier_id}", "SUCCESS"))
+            
+        except Exception as e:
+            # 标记为识别失败
+            self.update_supplier_ocr_status(supplier_id, 'error', False)
+            error_msg = f"保存OCR结果失败: {str(e)}"
+            self.root.after(0, lambda: self.log_ocr_message(error_msg, "ERROR"))
+    
+    def update_supplier_ocr_status(self, supplier_id, status, is_used):
+        """更新供应商的OCR识别状态"""
+        try:
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE suppliers 
+                SET ocr_recognition_status = ?, is_used = ?
+                WHERE id = ?
+            """, (status, 1 if is_used else 0, supplier_id))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.log_ocr_message(f"更新供应商状态失败: {str(e)}", "ERROR"))
+    
+    def batch_import_ocr_cache_to_db(self):
+        """批量导入OCR缓存文件到数据库"""
+        try:
+            cache_dir = os.path.join(os.path.dirname(self.crawler.db_path), 'ocr_cache')
+            if not os.path.exists(cache_dir):
+                self.root.after(0, lambda: self.log_ocr_message("没有找到OCR缓存目录", "INFO"))
+                return
+            
+            # 获取所有缓存文件
+            cache_files = [f for f in os.listdir(cache_dir) if f.endswith('.json')]
+            if not cache_files:
+                self.root.after(0, lambda: self.log_ocr_message("没有找到OCR缓存文件", "INFO"))
+                return
+            
+            self.root.after(0, lambda: self.log_ocr_message(f"开始批量导入 {len(cache_files)} 个OCR缓存文件到数据库", "INFO"))
+            
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            success_count = 0
+            error_count = 0
+            
+            for cache_file in cache_files:
+                try:
+                    file_path = os.path.join(cache_dir, cache_file)
+                    
+                    # 读取缓存文件
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        ocr_result = json.load(f)
+                    
+                    # 插入到数据库
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO company_registration (
+                            profile_id, supplier_id, registration_number, company_name, 
+                            registered_address, province, city, district, zip_code, 
+                            legal_representative, issue_date, expiration_date, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        ocr_result.get('profile_id', ''),
+                        ocr_result.get('supplier_id', ''),
+                        ocr_result.get('registration_number', ''),
+                        ocr_result.get('company_name', ''),
+                        ocr_result.get('registered_address', ''),
+                        ocr_result.get('province', ''),
+                        ocr_result.get('city', ''),
+                        ocr_result.get('district', ''),
+                        ocr_result.get('zip_code', ''),
+                        ocr_result.get('legal_representative', ''),
+                        ocr_result.get('issue_date', ''),
+                        ocr_result.get('expiration_date', ''),
+                        ocr_result.get('created_at', datetime.now().isoformat())
+                    ))
+                    
+                    # 更新供应商状态为成功
+                    cursor.execute("""
+                        UPDATE suppliers 
+                        SET ocr_recognition_status = 'success', is_used = 1
+                        WHERE id = ?
+                    """, (ocr_result.get('supplier_id'),))
+                    
+                    success_count += 1
+                    
+                    # 删除已处理的缓存文件
+                    os.remove(file_path)
+                    
+                except Exception as e:
+                    error_count += 1
+                    self.root.after(0, lambda err=str(e), file=cache_file: self.log_ocr_message(f"导入缓存文件 {file} 失败: {err}", "ERROR"))
+                    continue
+            
+            conn.commit()
+            conn.close()
+            
+            self.root.after(0, lambda: self.log_ocr_message(f"✓ 批量导入完成：成功 {success_count} 个，失败 {error_count} 个", "SUCCESS"))
+            
+            # 刷新OCR结果列表
+            self.refresh_ocr_results()
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.log_ocr_message(f"批量导入OCR缓存失败: {str(e)}", "ERROR"))
+
+    def refresh_ocr_results(self):
+        """刷新OCR识别结果列表"""
+        try:
+            # 清空现有数据
+            for item in self.ocr_result_tree.get_children():
+                self.ocr_result_tree.delete(item)
+            
+            # 连接数据库
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 查询识别结果
+            query = """
+            SELECT cr.id, cr.company_name, cr.registration_number, 
+                   cr.legal_representative, cr.registered_address, 
+                   cr.province, cr.city, cr.district
+            FROM company_registration cr
+            ORDER BY cr.created_at DESC
+            """
+            
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            # 添加到列表
+            for i, result in enumerate(results, 1):
+                company_name = result[1] if result[1] else "未知"
+                credit_code = result[2] if result[2] else "未识别"
+                legal_rep = result[3] if result[3] else "未识别"
+                address = result[4] if result[4] else "未识别"
+                province = result[5] if result[5] else ""
+                city = result[6] if result[6] else ""
+                district = result[7] if result[7] else ""
+                
+                # 组合省市区信息
+                location_parts = [part for part in [province, city, district] if part]
+                location = "-".join(location_parts) if location_parts else "未识别"
+                
+                # 截断长文本
+                display_name = company_name[:30] + "..." if len(company_name) > 30 else company_name
+                display_address = address[:40] + "..." if len(address) > 40 else address
+                
+                self.ocr_result_tree.insert('', 'end', values=(
+                    i, display_name, credit_code, legal_rep, display_address, location
+                ))
+            
+            conn.close()
+            self.log_message(f"识别结果列表已刷新，共 {len(results)} 条记录")
+            
+        except Exception as e:
+            self.log_message(f"刷新识别结果列表失败: {e}")
+    
+    def export_ocr_results(self):
+        """导出OCR识别结果"""
+        try:
+            # 选择保存文件
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                title="导出识别结果"
+            )
+            
+            if not file_path:
+                return
+            
+            # 连接数据库
+            conn = sqlite3.connect(self.crawler.db_path)
+            cursor = conn.cursor()
+            
+            # 查询所有识别结果
+            query = """
+            SELECT s.company_name, cr.unified_social_credit_code, cr.legal_representative,
+                   cr.registered_capital, cr.establishment_date, cr.business_scope,
+                   cr.registration_address, s.ocr_recognition_status, cr.created_at
+            FROM company_registration cr
+            JOIN suppliers s ON cr.supplier_id = s.id
+            ORDER BY cr.created_at DESC
+            """
+            
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            # 写入CSV文件
+            import csv
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile)
+                # 写入标题行
+                writer.writerow(['公司名称', '统一社会信用代码', '法定代表人', '注册资本', 
+                               '成立日期', '经营范围', '注册地址', '识别状态', '识别时间'])
+                # 写入数据行
+                for result in results:
+                    writer.writerow(result)
+            
+            conn.close()
+            messagebox.showinfo("成功", f"识别结果已导出到: {file_path}")
+            self.log_message(f"识别结果已导出到: {file_path}")
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
+            self.log_message(f"导出识别结果失败: {e}")
+    
+    def clear_ocr_results(self):
+        """清空OCR识别结果"""
+        if messagebox.askyesno("确认", "确定要清空所有识别结果吗？此操作不可恢复！"):
+            try:
+                conn = sqlite3.connect(self.crawler.db_path)
+                cursor = conn.cursor()
+                
+                # 清空company_registration表
+                cursor.execute('DELETE FROM company_registration')
+                
+                # 重置suppliers表的OCR状态
+                cursor.execute('UPDATE suppliers SET ocr_recognition_status = "pending"')
+                
+                conn.commit()
+                conn.close()
+                
+                # 刷新列表
+                self.refresh_ocr_results()
+                self.refresh_db_list_page()
+                
+                messagebox.showinfo("成功", "识别结果已清空")
+                self.log_message("识别结果已清空")
+                
+            except Exception as e:
+                messagebox.showerror("错误", f"清空失败: {e}")
+                self.log_message(f"清空识别结果失败: {e}")
 
     def run(self):
         """运行GUI"""
