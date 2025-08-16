@@ -347,6 +347,9 @@ class AlibabaSupplierCrawler:
                 save_path TEXT,
                 license_extracted BOOLEAN DEFAULT FALSE,
                 is_used BOOLEAN DEFAULT FALSE,
+                extraction_failed_count INTEGER DEFAULT 0,
+                skip_extraction BOOLEAN DEFAULT FALSE,
+                last_extraction_attempt TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -1699,7 +1702,8 @@ class AlibabaSupplierCrawler:
             cursor.execute('''
                 SELECT company_id, company_name, action_url 
                 FROM suppliers 
-                WHERE license_extracted = FALSE OR license_extracted IS NULL
+                WHERE (license_extracted = FALSE OR license_extracted IS NULL)
+                  AND (skip_extraction = FALSE OR skip_extraction IS NULL)
                 ORDER BY created_at DESC
             ''')
             
@@ -1845,6 +1849,8 @@ class AlibabaSupplierCrawler:
                 return bool(licenses or license_info)
             else:
                 print(f"  - {company_name}: 无法获取页面")
+                # 更新失败次数和最后尝试时间
+                self.update_extraction_failure(company_id, company_name)
                 return False
                 
         except Exception as e:
@@ -1855,7 +1861,38 @@ class AlibabaSupplierCrawler:
             if log_callback:
                 self.log(f"  - {company_name}: 处理出错: {e}", "ERROR", log_callback)
                 self.log(f"  - 详细错误: {error_detail}", "DEBUG", log_callback)
+            # 更新失败次数和最后尝试时间
+            self.update_extraction_failure(company_id, company_name)
             return False
+    
+    def update_extraction_failure(self, company_id, company_name, max_failures=3):
+        """更新提取失败次数，超过阈值自动标记为跳过"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # 更新失败次数和最后尝试时间
+            cursor.execute('''
+                UPDATE suppliers 
+                SET extraction_failed_count = COALESCE(extraction_failed_count, 0) + 1,
+                    last_extraction_attempt = CURRENT_TIMESTAMP
+                WHERE company_id = ?
+            ''', (company_id,))
+            
+            # 获取当前失败次数
+            cursor.execute('SELECT extraction_failed_count FROM suppliers WHERE company_id = ?', (company_id,))
+            result = cursor.fetchone()
+            
+            if result and result[0] >= max_failures:
+                # 超过失败阈值，自动标记为跳过
+                cursor.execute('UPDATE suppliers SET skip_extraction = TRUE WHERE company_id = ?', (company_id,))
+                print(f"  - {company_name}: 失败次数达到{max_failures}次，已自动标记为跳过提取")
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            print(f"更新失败次数时出错: {e}")
     
     async def extract_single_license(self, company_id, company_name, action_url, proxy=None, log_callback=None):
         """提取单个供应商的执照"""
