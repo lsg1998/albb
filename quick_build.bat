@@ -20,7 +20,7 @@ echo.
 echo 开始打包...
 echo.
 
-venv\Scripts\python.exe -m PyInstaller --onefile --windowed --name "阿里巴巴供应商爬虫" --add-data "cary.json;." --add-data "alibaba_supplier_crawler.py;." --hidden-import aiohttp --hidden-import asyncio --hidden-import sqlite3 --hidden-import tkinter --hidden-import requests --hidden-import urllib.parse --hidden-import json --hidden-import time --hidden-import random --hidden-import threading --hidden-import platform --hidden-import subprocess --hidden-import os --hidden-import re alibaba_crawler_gui.py
+venv\Scripts\python.exe -m PyInstaller --onefile --windowed --name "阿里巴巴供应商爬虫" --add-data "cary.json;." --add-data "alibaba_supplier_crawler.py;." --add-data "ocr;ocr" --hidden-import aiohttp --hidden-import asyncio --hidden-import sqlite3 --hidden-import tkinter --hidden-import requests --hidden-import urllib.parse --hidden-import json --hidden-import time --hidden-import random --hidden-import threading --hidden-import platform --hidden-import subprocess --hidden-import os --hidden-import re alibaba_crawler_gui.py
 
 if %errorlevel% equ 0 (
     echo.
