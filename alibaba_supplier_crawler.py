@@ -405,6 +405,8 @@ class AlibabaSupplierCrawler:
                 city VARCHAR(50),
                 district VARCHAR(50),
                 zip_code VARCHAR(10),
+                address_parsed BOOLEAN DEFAULT FALSE,
+                license_url TEXT,
                 legal_representative VARCHAR(100),
                 issue_date DATE,
                 expiration_date DATE,
@@ -468,6 +470,18 @@ class AlibabaSupplierCrawler:
             # 创建索引以提高查询效率
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_ocr_recognition_status ON suppliers(ocr_recognition_status)')
             print("已为ocr_recognition_status字段创建索引")
+        
+        # 检查并添加address_parsed字段到company_registration表
+        cursor.execute("PRAGMA table_info(company_registration)")
+        registration_columns = [column[1] for column in cursor.fetchall()]
+        if registration_columns and 'address_parsed' not in registration_columns:
+            cursor.execute('ALTER TABLE company_registration ADD COLUMN address_parsed BOOLEAN DEFAULT FALSE')
+            print("已添加address_parsed字段到company_registration表")
+        
+        # 检查并添加license_url字段到company_registration表
+        if registration_columns and 'license_url' not in registration_columns:
+            cursor.execute('ALTER TABLE company_registration ADD COLUMN license_url TEXT')
+            print("已添加license_url字段到company_registration表")
         
         conn.commit()
         conn.close()

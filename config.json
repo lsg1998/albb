@@ -1,0 +1,39 @@
+{
+  "database": {
+    "path": "D:\\phpstudy_pro\\WWW\\xm\\alibaba\\alibaba_supplier_data.db",
+    "max_connections": 2,
+    "timeout": 30,
+    "journal_mode": "WAL",
+    "synchronous": "NORMAL",
+    "cache_size": 10000,
+    "temp_store": "memory",
+    "busy_timeout": 30000
+  },
+  "ocr": {
+    "max_retries": 1,
+    "retry_delay": 1.0,
+    "batch_size": 3,
+    "cache_dir": "D:\\phpstudy_pro\\WWW\\xm\\alibaba\\ocr_cache",
+    "log_dir": "D:\\phpstudy_pro\\WWW\\xm\\alibaba\\logs",
+    "cleanup_days": 1
+  },
+  "baidu_ocr": {
+    "app_id": "",
+    "api_key": "",
+    "secret_key": "",
+    "timeout": 30,
+    "max_retries": 3
+  },
+  "address": {
+    "enable_parsing": true,
+    "enable_postcode_query": true,
+    "cache_enabled": true,
+    "max_cache_size": 10000
+  },
+  "logging": {
+    "level": "DEBUG",
+    "format": "%(asctime)s - %(levelname)s - %(message)s",
+    "file_enabled": true,
+    "console_enabled": true
+  }
+}

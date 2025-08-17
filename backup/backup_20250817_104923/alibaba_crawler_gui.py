@@ -498,12 +498,10 @@ class AlibabaCrawlerGUI:
         ttk.Button(ocr_result_btn_frame, text="刷新列表", command=self.refresh_ocr_results).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(ocr_result_btn_frame, text="导出结果", command=self.export_ocr_results).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(ocr_result_btn_frame, text="批量导入缓存", command=self.batch_import_ocr_cache_to_db).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(ocr_result_btn_frame, text="生成省市区", command=self.generate_address_info).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(ocr_result_btn_frame, text="补充邮编", command=self.generate_postcode_only).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(ocr_result_btn_frame, text="清空结果", command=self.clear_ocr_results).pack(side=tk.LEFT)
         
         # 识别结果表格
-        ocr_columns = ('序号', '公司名称', '统一社会信用代码', '法人', '公司地址', '省市区', '邮编', '执照URL')
+        ocr_columns = ('序号', '公司名称', '统一社会信用代码', '法人', '公司地址', '省市区')
         self.ocr_result_tree = ttk.Treeview(ocr_result_frame, columns=ocr_columns, show='headings', height=8)
         
         # 设置列标题和宽度
@@ -521,10 +519,6 @@ class AlibabaCrawlerGUI:
                 self.ocr_result_tree.column(col, width=250, anchor=tk.W)
             elif col == '省市区':
                 self.ocr_result_tree.column(col, width=120, anchor=tk.CENTER)
-            elif col == '邮编':
-                self.ocr_result_tree.column(col, width=80, anchor=tk.CENTER)
-            elif col == '执照URL':
-                self.ocr_result_tree.column(col, width=150, anchor=tk.W)
             else:
                 self.ocr_result_tree.column(col, width=100, anchor=tk.CENTER)
         
@@ -4670,7 +4664,7 @@ class AlibabaCrawlerGUI:
             
             if result['success']:
                 # 保存识别结果到company_registration表
-                self.save_ocr_result(supplier_id, result['data'], license_url)
+                self.save_ocr_result(supplier_id, result['data'])
                 
                 # 更新suppliers表状态
                 self.update_supplier_ocr_status(supplier_id, 'success', True)
@@ -4686,7 +4680,7 @@ class AlibabaCrawlerGUI:
             self.update_supplier_ocr_status(supplier_id, 'error', False)
             return {'success': False, 'error': str(e)}
     
-    def save_ocr_result(self, supplier_id, ocr_data, license_url=None):
+    def save_ocr_result(self, supplier_id, ocr_data):
         """保存OCR识别结果到本地文件（避免数据库锁定问题）"""
         try:
             # 调试信息：打印OCR数据结构
@@ -4720,12 +4714,10 @@ class AlibabaCrawlerGUI:
                 'registration_number': registration_number,
                 'company_name': company_name,
                 'registered_address': data.get('注册地址', ''),
-                'province': '',  # 省市区字段暂时为空，等待后续生成
-                'city': '',
-                'district': '',
-                'zip_code': '',
-                'address_parsed': False,  # 标记是否已解析地址信息
-                'license_url': license_url or '',  # 添加license_url字段
+                'province': data.get('省份', ''),
+                'city': data.get('城市', ''),
+                'district': data.get('区县', ''),
+                'zip_code': data.get('邮编', ''),
                 'legal_representative': data.get('法定代表人', ''),
                 'issue_date': data.get('发证日期', ''),
                 'expiration_date': data.get('到期日期', ''),
@@ -4798,8 +4790,8 @@ class AlibabaCrawlerGUI:
                         INSERT OR REPLACE INTO company_registration (
                             profile_id, supplier_id, registration_number, company_name, 
                             registered_address, province, city, district, zip_code, 
-                            license_url, legal_representative, issue_date, expiration_date, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            legal_representative, issue_date, expiration_date, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         ocr_result.get('profile_id', ''),
                         ocr_result.get('supplier_id', ''),
@@ -4810,7 +4802,6 @@ class AlibabaCrawlerGUI:
                         ocr_result.get('city', ''),
                         ocr_result.get('district', ''),
                         ocr_result.get('zip_code', ''),
-                        ocr_result.get('license_url', ''),
                         ocr_result.get('legal_representative', ''),
                         ocr_result.get('issue_date', ''),
                         ocr_result.get('expiration_date', ''),
@@ -4860,7 +4851,7 @@ class AlibabaCrawlerGUI:
             query = """
             SELECT cr.id, cr.company_name, cr.registration_number, 
                    cr.legal_representative, cr.registered_address, 
-                   cr.province, cr.city, cr.district, cr.zip_code, cr.license_url
+                   cr.province, cr.city, cr.district
             FROM company_registration cr
             ORDER BY cr.created_at DESC
             """
@@ -4877,8 +4868,6 @@ class AlibabaCrawlerGUI:
                 province = result[5] if result[5] else ""
                 city = result[6] if result[6] else ""
                 district = result[7] if result[7] else ""
-                zip_code = result[8] if result[8] else ""
-                license_url = result[9] if result[9] else ""
                 
                 # 组合省市区信息
                 location_parts = [part for part in [province, city, district] if part]
@@ -4887,10 +4876,9 @@ class AlibabaCrawlerGUI:
                 # 截断长文本
                 display_name = company_name[:30] + "..." if len(company_name) > 30 else company_name
                 display_address = address[:40] + "..." if len(address) > 40 else address
-                display_license_url = license_url[:30] + "..." if len(license_url) > 30 else license_url
                 
                 self.ocr_result_tree.insert('', 'end', values=(
-                    i, display_name, credit_code, legal_rep, display_address, location, zip_code, display_license_url
+                    i, display_name, credit_code, legal_rep, display_address, location
                 ))
             
             conn.close()
@@ -4947,227 +4935,6 @@ class AlibabaCrawlerGUI:
         except Exception as e:
             messagebox.showerror("错误", f"导出失败: {e}")
             self.log_message(f"导出识别结果失败: {e}")
-    
-    def generate_address_info(self):
-        """生成省市区信息"""
-        try:
-            # 询问用户选择地址解析方式
-            choice = messagebox.askyesnocancel(
-                "选择地址解析方式", 
-                "是否使用高德地图API进行地址解析？\n\n" +
-                "是：使用高德地图API（需要配置API密钥）\n" +
-                "否：使用本地地址数据库\n" +
-                "取消：取消操作"
-            )
-            
-            if choice is None:  # 用户点击取消
-                return
-            
-            if choice:  # 使用高德地图API
-                # 检查是否配置了API密钥
-                api_key = self.get_amap_api_key()
-                if not api_key:
-                    messagebox.showerror("错误", "请先配置高德地图API密钥")
-                    return
-                
-                from ocr.amap_address_query import AmapAddressQuery
-                address_query = AmapAddressQuery(api_key)
-            else:  # 使用本地地址数据库
-                from ocr.address_query import AddressQuery
-                address_query = AddressQuery()
-            
-            conn = sqlite3.connect(self.crawler.db_path)
-            cursor = conn.cursor()
-            
-            # 查询未解析地址的记录（省和市都为空的记录）
-            cursor.execute("""
-                SELECT id, registered_address 
-                FROM company_registration 
-                WHERE (province IS NULL OR province = '') 
-                AND (city IS NULL OR city = '') 
-                AND registered_address IS NOT NULL 
-                AND registered_address != ''
-            """)
-            
-            records = cursor.fetchall()
-            
-            if not records:
-                messagebox.showinfo("提示", "没有需要解析的地址记录")
-                return
-            
-            success_count = 0
-            total_count = len(records)
-            
-            self.log_message(f"开始解析 {total_count} 条地址记录...")
-            
-            for record_id, registered_address in records:
-                try:
-                    # 解析地址
-                    result = address_query.parse_address(registered_address)
-                    
-                    if result and isinstance(result, dict) and result.get('province'):
-                        # 更新数据库记录
-                        cursor.execute("""
-                            UPDATE company_registration 
-                            SET province = ?, city = ?, district = ?, zip_code = ?, address_parsed = 1
-                            WHERE id = ?
-                        """, (
-                            result.get('province', ''),
-                            result.get('city', ''),
-                            result.get('district', '') or result.get('county', ''),  # 兼容两种字段名
-                            result.get('postcode', '') or result.get('postal_code', '') or result.get('zip_code', ''),  # 兼容多种字段名
-                            record_id
-                        ))
-                        success_count += 1
-                        self.log_message(f"解析成功: {registered_address} -> {result.get('province', '')}{result.get('city', '')}{result.get('district', '') or result.get('county', '')} - 邮编: {result.get('postcode', '')}")
-                    else:
-                        # 标记为已尝试解析但失败
-                        cursor.execute("""
-                            UPDATE company_registration 
-                            SET address_parsed = 1
-                            WHERE id = ?
-                        """, (record_id,))
-                        self.log_message(f"解析失败: {registered_address}")
-                        
-                except Exception as e:
-                    self.log_message(f"解析地址出错 {registered_address}: {e}")
-                    # 标记为已尝试解析但出错
-                    cursor.execute("""
-                        UPDATE company_registration 
-                        SET address_parsed = 1
-                        WHERE id = ?
-                    """, (record_id,))
-            
-            conn.commit()
-            conn.close()
-            
-            # 关闭地址查询引擎（如果有close方法）
-            if hasattr(address_query, 'close'):
-                address_query.close()
-            
-            # 刷新结果列表
-            self.refresh_ocr_results()
-            
-            messagebox.showinfo("完成", f"地址解析完成！\n成功解析: {success_count}/{total_count} 条记录")
-            self.log_message(f"地址解析完成，成功解析 {success_count}/{total_count} 条记录")
-            
-        except Exception as e:
-            messagebox.showerror("错误", f"生成省市区信息失败: {e}")
-            self.log_message(f"生成省市区信息失败: {e}")
-    
-    def get_amap_api_key(self):
-        """获取高德地图API密钥"""
-        try:
-            # 尝试从配置文件读取
-            config_file = "amap_config.json"
-            if os.path.exists(config_file):
-                with open(config_file, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    api_key = config.get('api_key', '').strip()
-                    if api_key:  # 检查密钥是否非空
-                        return api_key
-            
-            # 如果配置文件不存在或没有密钥，弹出输入框
-            from tkinter import simpledialog
-            api_key = simpledialog.askstring(
-                "配置高德地图API密钥",
-                "请输入高德地图API密钥：\n\n" +
-                "获取方式：\n" +
-                "1. 访问 https://console.amap.com/\n" +
-                "2. 注册并创建应用\n" +
-                "3. 获取Web服务API密钥",
-                show='*'
-            )
-            
-            if api_key and api_key.strip():
-                # 保存到配置文件
-                config = {'api_key': api_key.strip()}
-                with open(config_file, 'w', encoding='utf-8') as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-                return api_key.strip()
-            
-            return None
-            
-        except Exception as e:
-            self.log_message(f"获取高德地图API密钥失败: {e}")
-            return None
-    
-    def generate_postcode_only(self):
-        """专门补充邮编信息"""
-        try:
-            conn = sqlite3.connect(self.crawler.db_path)
-            cursor = conn.cursor()
-            
-            # 查询已有省市信息但没有邮编的记录（district可以为空）
-            cursor.execute("""
-                SELECT id, province, city, district, registered_address 
-                FROM company_registration 
-                WHERE province IS NOT NULL AND province != '' 
-                AND city IS NOT NULL AND city != ''
-                AND (zip_code IS NULL OR zip_code = '')
-                AND registered_address IS NOT NULL 
-                AND registered_address != ''
-            """)
-            
-            records = cursor.fetchall()
-            
-            if not records:
-                messagebox.showinfo("提示", "没有需要补充邮编的记录")
-                conn.close()
-                return
-            
-            # 连接area.db数据库查询邮编
-            area_db_path = os.path.join(os.path.dirname(__file__), 'ocr', 'area.db')
-            area_conn = sqlite3.connect(area_db_path)
-            area_conn.row_factory = sqlite3.Row
-            area_cursor = area_conn.cursor()
-            
-            success_count = 0
-            total_count = len(records)
-            
-            self.log_message(f"开始补充 {total_count} 条记录的邮编...")
-            
-            for record_id, province, city, district, registered_address in records:
-                try:
-                    # 使用优化后的邮编查询逻辑：district -> city -> province
-                    from ocr.address_query import AddressQuery
-                    address_query = AddressQuery()
-                    
-                    # 调用优化后的邮编查询方法
-                    postcode = address_query._get_postcode_from_db(province, city, district or '')
-                    
-                    # 关闭查询引擎
-                    if hasattr(address_query, 'close'):
-                        address_query.close()
-                    
-                    if postcode:
-                        # 更新数据库记录
-                        cursor.execute("""
-                            UPDATE company_registration 
-                            SET zip_code = ?
-                            WHERE id = ?
-                        """, (postcode, record_id))
-                        success_count += 1
-                        self.log_message(f"邮编补充成功: {province}{city}{district} -> {postcode}")
-                    else:
-                        self.log_message(f"邮编查询失败: {province}{city}{district}")
-                        
-                except Exception as e:
-                    self.log_message(f"补充邮编出错 {province}{city}{district}: {e}")
-            
-            conn.commit()
-            conn.close()
-            area_conn.close()
-            
-            # 刷新结果列表
-            self.refresh_ocr_results()
-            
-            messagebox.showinfo("完成", f"邮编补充完成！\n成功补充: {success_count}/{total_count} 条记录")
-            self.log_message(f"邮编补充完成，成功补充 {success_count}/{total_count} 条记录")
-            
-        except Exception as e:
-            messagebox.showerror("错误", f"补充邮编失败: {e}")
-            self.log_message(f"补充邮编失败: {e}")
     
     def clear_ocr_results(self):
         """清空OCR识别结果"""

@@ -249,27 +249,6 @@ class BaiduLicenseOCRAPI:
             # 获取注册地址
             registered_address = words_result.get('地址', {}).get('words', '')
             
-            # 解析地址获取省市区和邮编
-            province = ''
-            city = ''
-            district = ''
-            postal_code = ''
-            
-            if registered_address:
-                try:
-                    # 解析地址
-                    parsed_address = self.address_query.parse_address(registered_address)
-                    province = parsed_address.get('province', '')
-                    city = parsed_address.get('city', '')
-                    district = parsed_address.get('county', '')
-                    
-                    # 查询邮编
-                    address_info = self.address_query.query_single_address(registered_address)
-                    if address_info:
-                        postal_code = address_info.get('postcode', '')
-                except Exception as e:
-                    print(f"地址解析失败: {str(e)}")
-            
             # 构建标准化结果
             result = {
                 "RequestId": baidu_result.get('log_id', ''),
@@ -281,10 +260,6 @@ class BaiduLicenseOCRAPI:
                     "注册资本": words_result.get('注册资本', {}).get('words', ''),
                     "国家/地区": "中国",
                     "注册地址": registered_address,
-                    "省份": province,
-                    "城市": city,
-                    "区县": district,
-                    "邮编": postal_code,
                     "成立年份": words_result.get('成立日期', {}).get('words', ''),
                     "法律形式": words_result.get('类型', {}).get('words', ''),
                     "法定代表人": words_result.get('法人', {}).get('words', '')
